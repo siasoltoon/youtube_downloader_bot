@@ -2,7 +2,7 @@ import os
 import telebot
 from telebot import types
 
-from downloader import get_video_data
+from downloader import get_video_data, download_video
 
 
 TOKEN = os.getenv("BOT_TOKEN")
@@ -12,7 +12,6 @@ if not TOKEN:
 
 bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
 
-# ذخیره موقت اطلاعات کاربران
 user_data = {}
 
 
@@ -20,8 +19,8 @@ user_data = {}
 def start(message):
     bot.send_message(
         message.chat.id,
-        "سلام کصکش\n"
-        "لینک ویدیوی کصشرتو بفرست"
+        "سلام 👋\n"
+        "لینک ویدیوی YouTube رو بفرست."
     )
 
 
@@ -53,7 +52,6 @@ def handle_url(message):
             )
             return
 
-        # ذخیره اطلاعات برای کاربر
         user_data[message.from_user.id] = {
             "url": url,
             "video_info": video_info,
@@ -74,6 +72,7 @@ def handle_url(message):
         buttons = []
 
         for quality in qualities:
+
             buttons.append(
                 types.InlineKeyboardButton(
                     f"{quality}p",
@@ -117,11 +116,65 @@ def quality_selected(call):
 
     bot.answer_callback_query(call.id)
 
-    bot.send_message(
-        call.message.chat.id,
-        f"✅ کیفیت {quality}p انتخاب شد.\n"
-        f"⏳ در مرحله بعد دانلود را اضافه می‌کنیم..."
+    chat_id = call.message.chat.id
+    url = user["url"]
+
+    status_message = bot.send_message(
+        chat_id,
+        f"⏳ در حال دانلود کیفیت {quality}p..."
     )
+
+    file_path = None
+
+    try:
+
+        file_path = download_video(
+            url,
+            quality
+        )
+
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(
+                "Downloaded file not found"
+            )
+
+        bot.edit_message_text(
+            "📤 دانلود انجام شد؛ در حال ارسال فایل...",
+            chat_id,
+            status_message.message_id
+        )
+
+        with open(file_path, "rb") as video:
+
+            bot.send_video(
+                chat_id,
+                video,
+                caption=f"🎬 کیفیت: {quality}p"
+            )
+
+        bot.delete_message(
+            chat_id,
+            status_message.message_id
+        )
+
+    except Exception as e:
+
+        print("Download error:", repr(e))
+
+        bot.edit_message_text(
+            "❌ دانلود یا ارسال ویدیو ناموفق بود.",
+            chat_id,
+            status_message.message_id
+        )
+
+    finally:
+
+        if file_path and os.path.exists(file_path):
+
+            try:
+                os.remove(file_path)
+            except Exception as e:
+                print("File cleanup error:", repr(e))
 
 
 print("🤖 Bot is starting...")
