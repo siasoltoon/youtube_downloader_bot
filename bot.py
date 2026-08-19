@@ -1,3 +1,16 @@
+import subprocess
+
+try:
+    result = subprocess.run(
+        ["deno", "--version"],
+        capture_output=True,
+        text=True
+    )
+    print("DENO TEST:")
+    print(result.stdout)
+    print(result.stderr)
+except Exception as e:
+    print("DENO TEST ERROR:", e)
 import os
 import telebot
 from telebot import types
