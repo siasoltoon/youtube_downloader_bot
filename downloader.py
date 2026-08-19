@@ -8,10 +8,15 @@ def get_video_data(url):
         "quiet": True,
         "no_warnings": True,
         "noplaylist": True,
+
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android_vr"]
+            }
+        }
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-
         info = ydl.extract_info(
             url,
             download=False
