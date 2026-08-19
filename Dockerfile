@@ -5,6 +5,7 @@ RUN apt-get update \
        ffmpeg \
        curl \
        ca-certificates \
+       unzip \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl -fsSL https://deno.land/install.sh | sh
