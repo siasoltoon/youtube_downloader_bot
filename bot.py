@@ -16,8 +16,8 @@ bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
 def start(message):
     bot.send_message(
         message.chat.id,
-        "سلام 👋\n"
-        "لینک ویدیو رو بفرست تا اطلاعات ویدیو رو بررسی کنم."
+        "سلام کصکش\n"
+        "اون لینک ویدیو کصشرتو بفرست."
     )
 
 
