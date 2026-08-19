@@ -11,7 +11,7 @@ def get_video_data(url):
 
         "extractor_args": {
             "youtube": {
-                "player_client": ["ٌWeb"]
+                "player_client": ["android_vr"]
             }
         }
     }
