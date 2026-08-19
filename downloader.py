@@ -5,8 +5,8 @@ import yt_dlp
 def get_video_data(url):
 
     ydl_opts = {
-        "quiet": True,
-        "no_warnings": True,
+        "quiet": false,
+        "no_warnings": false,
         "noplaylist": True,
 
         "extractor_args": {
