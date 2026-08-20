@@ -111,39 +111,7 @@ COOKIE_FILE = create_cookie_file()
 def configure_pot_provider(opts):
 
     if not POT_PROVIDER_URL:
-
-        print()
-        print("=" * 70)
-        print("⚠️ PO TOKEN PROVIDER")
-        print("=" * 70)
-
-        print(
-            "YOUTUBE_POT_PROVIDER_URL تنظیم نشده است."
-        )
-
-        print(
-            "PO Token Provider غیرفعال است."
-        )
-
-        print("=" * 70)
-        print()
-
         return
-
-    print()
-    print("=" * 70)
-    print("🔐 PO TOKEN PROVIDER")
-    print("=" * 70)
-
-    print(
-        f"Provider URL: {POT_PROVIDER_URL}"
-    )
-
-    print(
-        "Provider mode: automatic"
-    )
-
-    print("=" * 70)
 
     extractor_args = opts.setdefault(
         "extractor_args",
@@ -229,17 +197,9 @@ def get_ydl_opts():
         }
     }
 
-    # ========================================================
-    # Cookies
-    # ========================================================
-
     if COOKIE_FILE:
 
         opts["cookiefile"] = COOKIE_FILE
-
-    # ========================================================
-    # PO Provider
-    # ========================================================
 
     configure_pot_provider(
         opts
@@ -249,46 +209,80 @@ def get_ydl_opts():
 
 
 # ============================================================
-# Print Formats
+# Human-readable file size
 # ============================================================
 
-def print_formats(info):
+def format_size(size):
 
-    print()
-    print("=" * 70)
-    print("AVAILABLE YOUTUBE FORMATS")
-    print("=" * 70)
+    if not size:
+        return "حجم نامشخص"
 
-    formats = info.get(
-        "formats",
-        []
+    try:
+
+        size = float(size)
+
+    except Exception:
+
+        return "حجم نامشخص"
+
+    units = [
+        "B",
+        "KB",
+        "MB",
+        "GB",
+        "TB"
+    ]
+
+    index = 0
+
+    while size >= 1024 and index < len(units) - 1:
+
+        size /= 1024
+        index += 1
+
+    if index == 0:
+
+        return f"{int(size)} {units[index]}"
+
+    return f"{size:.1f} {units[index]}"
+
+
+# ============================================================
+# Duration formatter
+# ============================================================
+
+def format_duration(seconds):
+
+    if not seconds:
+        return "نامشخص"
+
+    try:
+
+        seconds = int(seconds)
+
+    except Exception:
+
+        return "نامشخص"
+
+    hours = seconds // 3600
+
+    minutes = (
+        seconds % 3600
+    ) // 60
+
+    secs = (
+        seconds % 60
     )
 
-    if not formats:
+    if hours > 0:
 
-        print(
-            "⚠️ No formats returned by YouTube."
+        return (
+            f"{hours}:{minutes:02d}:{secs:02d}"
         )
 
-        print("=" * 70)
-
-        return
-
-    for f in formats:
-
-        print(
-            f"format_id={f.get('format_id')} | "
-            f"height={f.get('height')} | "
-            f"width={f.get('width')} | "
-            f"ext={f.get('ext')} | "
-            f"vcodec={f.get('vcodec')} | "
-            f"acodec={f.get('acodec')} | "
-            f"fps={f.get('fps')} | "
-            f"filesize={f.get('filesize')} | "
-            f"protocol={f.get('protocol')}"
-        )
-
-    print("=" * 70)
+    return (
+        f"{minutes}:{secs:02d}"
+    )
 
 
 # ============================================================
@@ -299,54 +293,31 @@ def format_score(fmt):
 
     score = 0
 
-    ext = fmt.get("ext")
-
-    vcodec = fmt.get(
-        "vcodec"
-    )
-
-    acodec = fmt.get(
-        "acodec"
-    )
-
-    # MP4 preferred
-    if ext == "mp4":
+    if fmt.get("ext") == "mp4":
         score += 100
 
-    # Video
-    if (
-        vcodec
-        and
-        vcodec != "none"
+    if fmt.get("vcodec") not in (
+        None,
+        "none"
     ):
         score += 50
 
-    # Audio
-    if (
-        acodec
-        and
-        acodec != "none"
+    if fmt.get("acodec") not in (
+        None,
+        "none"
     ):
         score += 50
 
-    # FPS
-    fps = fmt.get(
-        "fps"
-    )
+    try:
 
-    if fps:
+        score += min(
+            int(float(fmt.get("fps") or 0)),
+            60
+        )
 
-        try:
+    except Exception:
+        pass
 
-            score += min(
-                int(float(fps)),
-                60
-            )
-
-        except Exception:
-            pass
-
-    # Bitrate
     try:
 
         score += int(
@@ -362,19 +333,17 @@ def format_score(fmt):
 
 
 # ============================================================
-# Extract Qualities
+# Extract video qualities + sizes
 # ============================================================
 
 def extract_qualities(info):
 
     qualities = {}
 
-    formats = info.get(
+    for fmt in info.get(
         "formats",
         []
-    )
-
-    for fmt in formats:
+    ):
 
         height = fmt.get(
             "height"
@@ -384,29 +353,20 @@ def extract_qualities(info):
             "vcodec"
         )
 
-        ext = fmt.get(
-            "ext"
-        )
-
-        # No height
         if not height:
             continue
 
         try:
 
-            height = int(
-                height
-            )
+            height = int(height)
 
         except Exception:
 
             continue
 
-        # Ignore tiny formats
         if height < 144:
             continue
 
-        # Audio-only
         if (
             not vcodec
             or
@@ -414,23 +374,16 @@ def extract_qualities(info):
         ):
             continue
 
-        # Thumbnail/storyboard
-        if ext == "mhtml":
+        if fmt.get("ext") == "mhtml":
             continue
 
         current = qualities.get(
             height
         )
 
-        if current is None:
-
-            qualities[
-                height
-            ] = fmt
-
-            continue
-
         if (
+            current is None
+            or
             format_score(fmt)
             >
             format_score(current)
@@ -439,10 +392,6 @@ def extract_qualities(info):
             qualities[
                 height
             ] = fmt
-
-    # --------------------------------------------------------
-    # Sort from highest to lowest
-    # --------------------------------------------------------
 
     return dict(
         sorted(
@@ -454,12 +403,152 @@ def extract_qualities(info):
 
 
 # ============================================================
+# Estimate final file size
+# ============================================================
+
+def estimate_quality_size(
+    info,
+    height
+):
+
+    formats = info.get(
+        "formats",
+        []
+    )
+
+    video_candidates = []
+
+    audio_candidates = []
+
+    # --------------------------------------------------------
+    # Video
+    # --------------------------------------------------------
+
+    for fmt in formats:
+
+        fmt_height = fmt.get(
+            "height"
+        )
+
+        vcodec = fmt.get(
+            "vcodec"
+        )
+
+        if not fmt_height:
+            continue
+
+        if not vcodec or vcodec == "none":
+            continue
+
+        try:
+
+            fmt_height = int(
+                fmt_height
+            )
+
+        except Exception:
+
+            continue
+
+        if fmt_height > height:
+            continue
+
+        filesize = (
+            fmt.get("filesize")
+            or
+            fmt.get("filesize_approx")
+        )
+
+        if filesize:
+
+            video_candidates.append(
+                (
+                    fmt_height,
+                    filesize,
+                    format_score(fmt)
+                )
+            )
+
+    # --------------------------------------------------------
+    # Audio
+    # --------------------------------------------------------
+
+    for fmt in formats:
+
+        acodec = fmt.get(
+            "acodec"
+        )
+
+        vcodec = fmt.get(
+            "vcodec"
+        )
+
+        if (
+            not acodec
+            or
+            acodec == "none"
+        ):
+            continue
+
+        if (
+            vcodec
+            and
+            vcodec != "none"
+        ):
+            continue
+
+        filesize = (
+            fmt.get("filesize")
+            or
+            fmt.get("filesize_approx")
+        )
+
+        if filesize:
+
+            audio_candidates.append(
+                filesize
+            )
+
+    if not video_candidates:
+
+        return None
+
+    # Best video format at requested height
+    video_candidates.sort(
+        key=lambda x: (
+            x[0],
+            x[2]
+        ),
+        reverse=True
+    )
+
+    video_size = (
+        video_candidates[0][1]
+    )
+
+    audio_size = 0
+
+    if audio_candidates:
+
+        audio_size = max(
+            audio_candidates
+        )
+
+    total = (
+        video_size
+        +
+        audio_size
+    )
+
+    return total
+
+
+# ============================================================
 # Get Video Information
 # ============================================================
 
 def get_video_data(url):
 
-    print()
     print(
         "🔎 Extracting video information..."
     )
@@ -482,12 +571,43 @@ def get_video_data(url):
     if not info:
 
         raise RuntimeError(
-            "❌ اطلاعات ویدیو دریافت نشد."
+            "اطلاعات ویدیو دریافت نشد."
         )
 
-    print_formats(
+    qualities = extract_qualities(
         info
     )
+
+    quality_data = []
+
+    for height in qualities:
+
+        estimated_size = (
+            estimate_quality_size(
+                info,
+                height
+            )
+        )
+
+        quality_data.append({
+
+            "height": height,
+
+            "size": estimated_size,
+
+            "size_text": format_size(
+                estimated_size
+            )
+
+        })
+
+    available_qualities = [
+
+        item["height"]
+
+        for item in quality_data
+
+    ]
 
     video_info = {
 
@@ -517,6 +637,10 @@ def get_video_data(url):
             or 0
         ),
 
+        "duration_text": format_duration(
+            info.get("duration")
+        ),
+
         "thumbnail": (
             info.get("thumbnail")
             or ""
@@ -530,73 +654,118 @@ def get_video_data(url):
         "video_id": (
             info.get("id")
             or ""
-        )
+        ),
+
+        "quality_data": quality_data
+
     }
 
-    qualities = extract_qualities(
-        info
-    )
-
-    # --------------------------------------------------------
-    # Desired qualities
-    # --------------------------------------------------------
-
-    preferred_order = [
-        2160,
-        1440,
-        1080,
-        720,
-        480,
-        360,
-        240,
-        144
-    ]
-
-    available_qualities = []
-
-    for quality in preferred_order:
-
-        if quality in qualities:
-
-            available_qualities.append(
-                str(quality)
-            )
-
-    # --------------------------------------------------------
-    # Add unusual heights if YouTube provides them
-    # --------------------------------------------------------
-
-    for height in sorted(
-        qualities.keys(),
-        reverse=True
-    ):
-
-        height_str = str(
-            height
-        )
-
-        if (
-            height_str
-            not in
-            available_qualities
-        ):
-
-            available_qualities.append(
-                height_str
-            )
-
-    print()
     print(
         "🎥 AVAILABLE QUALITIES:",
         available_qualities
     )
 
-    print()
-
     return (
         video_info,
-        available_qualities
+        quality_data
     )
+
+
+# ============================================================
+# Get YouTube comments
+# ============================================================
+
+def get_video_comments(
+    url,
+    max_comments=100
+):
+
+    print(
+        f"💬 Extracting comments: {url}"
+    )
+
+    ydl_opts = get_ydl_opts()
+
+    ydl_opts.update({
+
+        "skip_download": True,
+
+        "getcomments": True,
+
+        "extractor_args": {
+
+            "youtube": [
+
+                "player_client=web,web_embedded,tv"
+
+            ],
+
+            "youtubepot-bgutilhttp": (
+
+                [
+                    f"base_url={POT_PROVIDER_URL}"
+                ]
+
+                if POT_PROVIDER_URL
+
+                else []
+
+            )
+
+        }
+
+    })
+
+    with yt_dlp.YoutubeDL(
+        ydl_opts
+    ) as ydl:
+
+        info = ydl.extract_info(
+            url,
+            download=False
+        )
+
+    comments = (
+        info.get("comments")
+        or []
+    )
+
+    result = []
+
+    for comment in comments:
+
+        if len(result) >= max_comments:
+            break
+
+        text = (
+            comment.get("text")
+            or ""
+        )
+
+        if not text:
+            continue
+
+        author = (
+            comment.get("author")
+            or "کاربر"
+        )
+
+        like_count = (
+            comment.get("like_count")
+            or 0
+        )
+
+        result.append({
+
+            "author": author,
+
+            "text": text,
+
+            "likes": like_count
+
+        })
+
+    return result
 
 
 # ============================================================
@@ -610,14 +779,6 @@ def build_format_selector(
     quality = int(
         quality
     )
-
-    # --------------------------------------------------------
-    # Video-only + audio
-    #
-    # This allows 1080p / 1440p / 2160p
-    # even when YouTube does not provide a
-    # combined audio+video format.
-    # --------------------------------------------------------
 
     return (
         f"bestvideo[height<={quality}]"
@@ -644,10 +805,6 @@ def find_final_file(
         return str(
             expected
         )
-
-    # --------------------------------------------------------
-    # Fallback
-    # --------------------------------------------------------
 
     matches = list(
         DOWNLOAD_DIR.glob(
@@ -678,23 +835,13 @@ def download_video(
     quality
 ):
 
-    print()
-    print("=" * 70)
-
-    print(
-        f"🎯 Requested quality: "
-        f"{quality}p"
-    )
-
-    print("=" * 70)
-
     quality = int(
         quality
     )
 
-    # --------------------------------------------------------
-    # Get video information
-    # --------------------------------------------------------
+    print(
+        f"🎯 Requested quality: {quality}p"
+    )
 
     info_opts = get_ydl_opts()
 
@@ -714,7 +861,7 @@ def download_video(
     if not info:
 
         raise RuntimeError(
-            "❌ Video information unavailable."
+            "Video information unavailable."
         )
 
     video_id = (
@@ -722,57 +869,45 @@ def download_video(
         or "youtube_video"
     )
 
-    # --------------------------------------------------------
-    # Determine available video heights
-    # --------------------------------------------------------
-
     qualities = extract_qualities(
         info
     )
 
-    available_heights = sorted(
+    available = sorted(
         qualities.keys()
     )
 
-    if not available_heights:
+    if not available:
 
         raise RuntimeError(
-            "❌ هیچ فرمت ویدیویی پیدا نشد."
+            "هیچ کیفیت ویدیویی پیدا نشد."
         )
 
-    # --------------------------------------------------------
-    # Find best height <= requested quality
-    # --------------------------------------------------------
-
-    valid_heights = [
-
+    valid = [
         h
-
-        for h in available_heights
-
+        for h in available
         if h <= quality
-
     ]
 
-    if not valid_heights:
+    if valid:
 
-        selected_height = min(
-            available_heights
+        selected_height = max(
+            valid
         )
 
     else:
 
-        selected_height = max(
-            valid_heights
+        selected_height = min(
+            available
         )
 
     print(
-        f"🎥 Selected video height: "
+        f"🎥 Selected quality: "
         f"{selected_height}p"
     )
 
     # --------------------------------------------------------
-    # Clean old files for this video
+    # Delete old files
     # --------------------------------------------------------
 
     for old_file in DOWNLOAD_DIR.glob(
@@ -784,11 +919,10 @@ def download_video(
             old_file.unlink()
 
         except Exception:
-
             pass
 
     # --------------------------------------------------------
-    # Format selector
+    # Format
     # --------------------------------------------------------
 
     format_selector = (
@@ -797,22 +931,13 @@ def download_video(
         )
     )
 
-    print("=" * 70)
-
     print(
         f"🎯 Format selector: "
         f"{format_selector}"
     )
 
-    print(
-        f"⬇️ Downloading "
-        f"{selected_height}p..."
-    )
-
-    print("=" * 70)
-
     # --------------------------------------------------------
-    # yt-dlp options
+    # Options
     # --------------------------------------------------------
 
     ydl_opts = get_ydl_opts()
@@ -826,21 +951,7 @@ def download_video(
             / f"{video_id}.%(ext)s"
         ),
 
-        # Force MP4 after merging
-        "merge_output_format": "mp4",
-
-        # ----------------------------------------------------
-        # FFmpeg
-        # ----------------------------------------------------
-
-        "postprocessors": [
-
-            {
-                "key": "FFmpegVideoRemuxer",
-                "preferedformat": "mp4"
-            }
-
-        ]
+        "merge_output_format": "mp4"
 
     })
 
@@ -848,38 +959,17 @@ def download_video(
     # Download
     # --------------------------------------------------------
 
-    try:
+    with yt_dlp.YoutubeDL(
+        ydl_opts
+    ) as ydl:
 
-        with yt_dlp.YoutubeDL(
-            ydl_opts
-        ) as ydl:
-
-            result = ydl.download(
-                [url]
-            )
-
-    except Exception as e:
-
-        print()
-        print(
-            "❌ yt-dlp download error:"
+        result = ydl.download(
+            [url]
         )
 
-        print(
-            repr(e)
-        )
-
-        raise
-
-    print()
     print(
-        f"yt-dlp return code: "
-        f"{result}"
+        f"yt-dlp return code: {result}"
     )
-
-    # --------------------------------------------------------
-    # Locate final file
-    # --------------------------------------------------------
 
     final_file = find_final_file(
         video_id
@@ -887,29 +977,9 @@ def download_video(
 
     if not final_file:
 
-        print()
-        print(
-            "❌ Download finished but "
-            "final MP4 was not found."
-        )
-
-        print(
-            "Files in download directory:"
-        )
-
-        for file in DOWNLOAD_DIR.glob("*"):
-
-            print(
-                f" - {file}"
-            )
-
         raise FileNotFoundError(
             "Final MP4 file not found."
         )
-
-    # --------------------------------------------------------
-    # Validate
-    # --------------------------------------------------------
 
     final_path = Path(
         final_file
@@ -918,41 +988,21 @@ def download_video(
     if not final_path.is_file():
 
         raise FileNotFoundError(
-            "Downloaded video is not a regular file."
+            "Final file is not regular."
         )
 
-    file_size = (
-        final_path.stat().st_size
-    )
+    size = final_path.stat().st_size
 
-    if file_size <= 0:
+    if size <= 0:
 
         raise RuntimeError(
             "Downloaded video is empty."
         )
 
-    print()
-    print("=" * 70)
-
     print(
-        "✅ DOWNLOAD COMPLETED"
+        f"✅ Download completed: "
+        f"{size / 1024 / 1024:.2f} MB"
     )
-
-    print(
-        f"📁 File: {final_file}"
-    )
-
-    print(
-        f"🎥 Quality: "
-        f"{selected_height}p"
-    )
-
-    print(
-        f"📦 Size: "
-        f"{file_size / (1024 * 1024):.2f} MB"
-    )
-
-    print("=" * 70)
 
     return final_file
 
@@ -971,17 +1021,4 @@ if __name__ == "__main__":
         f"Download directory: "
         f"{DOWNLOAD_DIR}"
     )
-
-    if POT_PROVIDER_URL:
-
-        print(
-            f"PO provider: "
-            f"{POT_PROVIDER_URL}"
-        )
-
-    else:
-
-        print(
-            "PO provider: disabled"
-        )
 
