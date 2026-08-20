@@ -1,4 +1,4 @@
-```python
+
 import subprocess
 import os
 import telebot
@@ -309,4 +309,4 @@ print(
 )
 
 bot.infinity_polling()
-```
+
