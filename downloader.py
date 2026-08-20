@@ -1,36 +1,36 @@
-
 import os
 import base64
 import tempfile
 import yt_dlp
 
 
-YOUTUBE_CLIENT = {
-    "youtube": {
-        "player_client": ["web"]
-    }
-}
-
-
 def create_cookie_file():
     cookies_b64 = os.getenv("YOUTUBE_COOKIES_B64")
 
     if not cookies_b64:
+        print("⚠️ YOUTUBE_COOKIES_B64 تنظیم نشده است.")
         return None
 
-    # حذف هدر/فوتر certutil در صورت وجود
+    # حذف فاصله‌ها، خطوط اضافی و هدر/فوتر احتمالی
     lines = cookies_b64.splitlines()
 
     clean_lines = []
 
     for line in lines:
-        if not line.startswith("-----"):
-            clean_lines.append(line.strip())
+        line = line.strip()
+
+        if not line:
+            continue
+
+        if line.startswith("-----"):
+            continue
+
+        clean_lines.append(line)
 
     encoded = "".join(clean_lines)
 
     try:
-        cookie_data = base64.b64decode(encoded)
+        cookie_data = base64.b64decode(encoded, validate=True)
     except Exception as e:
         raise RuntimeError(
             f"YOUTUBE_COOKIES_B64 نامعتبر است: {e}"
@@ -44,27 +44,55 @@ def create_cookie_file():
     with open(cookie_file, "wb") as f:
         f.write(cookie_data)
 
+    print(
+        f"🍪 YouTube cookies loaded: "
+        f"{len(cookie_data)} bytes"
+    )
+
     return cookie_file
 
 
 COOKIE_FILE = create_cookie_file()
 
 
-def get_video_data(url):
+def get_ydl_opts():
+    """
+    تنظیمات مشترک yt-dlp
+    """
 
-    ydl_opts = {
+    opts = {
         "quiet": False,
         "no_warnings": False,
         "noplaylist": True,
 
-        "extractor_args": YOUTUBE_CLIENT,
-
         "socket_timeout": 30,
         "retries": 3,
+
+        # اجازه بده yt-dlp خودش بهترین clientها را انتخاب کند
+        # و فقط به web محدود نشود.
+        "extractor_args": {
+            "youtube": {
+                "player_client": [
+                    "web",
+                    "android",
+                    "ios"
+                ]
+            }
+        },
     }
 
     if COOKIE_FILE:
-        ydl_opts["cookiefile"] = COOKIE_FILE
+        opts["cookiefile"] = COOKIE_FILE
+
+    return opts
+
+
+def get_video_data(url):
+
+    ydl_opts = get_ydl_opts()
+
+    # فقط اطلاعات را می‌گیریم و چیزی دانلود نمی‌شود
+    ydl_opts["skip_download"] = True
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
 
@@ -75,13 +103,17 @@ def get_video_data(url):
 
         video_info = {
             "title": info.get("title") or "نامشخص",
+
             "channel": (
                 info.get("channel")
                 or info.get("uploader")
                 or "نامشخص"
             ),
+
             "views": info.get("view_count") or 0,
+
             "likes": info.get("like_count") or 0,
+
             "duration": info.get("duration") or 0,
         }
 
@@ -90,13 +122,20 @@ def get_video_data(url):
         for f in info.get("formats", []):
 
             height = f.get("height")
+            ext = f.get("ext")
+            format_url = f.get("url")
 
             if (
                 height
-                and f.get("ext") == "mp4"
-                and f.get("url")
+                and ext == "mp4"
+                and format_url
             ):
-                qualities[str(height)] = f["url"]
+                height_key = str(height)
+
+                # اگر چند فرمت با یک کیفیت وجود داشت،
+                # بهترین مورد را نگه می‌داریم.
+                if height_key not in qualities:
+                    qualities[height_key] = format_url
 
         qualities = dict(
             sorted(
@@ -123,15 +162,9 @@ def download_video(url, quality):
         "%(id)s.%(ext)s"
     )
 
-    ydl_opts = {
-        "noplaylist": True,
-        "quiet": False,
-        "no_warnings": False,
+    ydl_opts = get_ydl_opts()
 
-        "extractor_args": YOUTUBE_CLIENT,
-
-        "socket_timeout": 30,
-        "retries": 3,
+    ydl_opts.update({
 
         "format": (
             f"bestvideo[height<={quality}]"
@@ -142,10 +175,13 @@ def download_video(url, quality):
         "outtmpl": output_template,
 
         "merge_output_format": "mp4",
-    }
 
-    if COOKIE_FILE:
-        ydl_opts["cookiefile"] = COOKIE_FILE
+        # فایل‌های موقت داخل همان پوشه
+        "paths": {
+            "home": output_dir,
+            "temp": output_dir
+        },
+    })
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
 
@@ -163,5 +199,9 @@ def download_video(url, quality):
         if os.path.exists(mp4_file):
             return mp4_file
 
-        return filename
+        if os.path.exists(filename):
+            return filename
 
+        raise FileNotFoundError(
+            "فایل ویدیو بعد از دانلود پیدا نشد."
+        )
