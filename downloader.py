@@ -1,7 +1,8 @@
-
 import os
 import base64
 import tempfile
+from pathlib import Path
+
 import yt_dlp
 
 
@@ -27,8 +28,8 @@ def create_cookie_file():
         return None
 
     try:
+        # حذف فاصله‌ها و خطوط خالی
         lines = cookies_b64.splitlines()
-
         clean_lines = []
 
         for line in lines:
@@ -37,7 +38,7 @@ def create_cookie_file():
             if not line:
                 continue
 
-            # حذف هدر/فوتر احتمالی
+            # اگر مقدار با header/footer اضافی آمده باشد
             if line.startswith("-----"):
                 continue
 
@@ -79,9 +80,16 @@ COOKIE_FILE = create_cookie_file()
 # ============================================================
 
 def configure_pot_provider(opts):
+    """
+    Configure bgutil-ytdlp-pot-provider.
+
+    Railway example:
+
+    YOUTUBE_POT_PROVIDER_URL=
+    http://bgutil-ytdlp-pot-provider.railway.internal:4416
+    """
 
     if not POT_PROVIDER_URL:
-
         print()
         print("=" * 70)
         print("⚠️ PO TOKEN PROVIDER")
@@ -90,7 +98,7 @@ def configure_pot_provider(opts):
             "YOUTUBE_POT_PROVIDER_URL تنظیم نشده است."
         )
         print(
-            "yt-dlp از provider داخلی 127.0.0.1:4416 استفاده خواهد کرد."
+            "PO Token Provider غیرفعال است."
         )
         print("=" * 70)
         print()
@@ -114,14 +122,12 @@ def configure_pot_provider(opts):
         {}
     )
 
-    # IMPORTANT:
-    # bgutil extractor arguments در Python
-    # باید به صورت list از stringها باشند.
+    # bgutil HTTP provider
     #
-    # معادل CLI:
+    # معادل:
     #
     # --extractor-args
-    # "youtubepot-bgutilhttp:base_url=http://..."
+    # youtubepot-bgutilhttp:base_url=http://...
     #
     extractor_args[
         "youtubepot-bgutilhttp"
@@ -131,12 +137,15 @@ def configure_pot_provider(opts):
 
 
 # ============================================================
-# yt-dlp Options
+# Base yt-dlp Options
 # ============================================================
 
 def get_ydl_opts():
 
     opts = {
+        # ----------------------------------------------------
+        # General
+        # ----------------------------------------------------
 
         "quiet": False,
 
@@ -152,6 +161,14 @@ def get_ydl_opts():
 
         "file_access_retries": 3,
 
+        "continuedl": True,
+
+        "overwrites": True,
+
+        # ----------------------------------------------------
+        # Fragment downloads
+        # ----------------------------------------------------
+
         "concurrent_fragment_downloads": 4,
 
         # ----------------------------------------------------
@@ -164,8 +181,6 @@ def get_ydl_opts():
 
         # ----------------------------------------------------
         # Remote EJS components
-        #
-        # برای حل JS challenge های جدید YouTube
         # ----------------------------------------------------
 
         "remote_components": [
@@ -175,12 +190,11 @@ def get_ydl_opts():
         # ----------------------------------------------------
         # YouTube clients
         #
-        # web اولویت اصلی است.
-        # mweb فقط در صورت وجود format مناسب استفاده می‌شود.
+        # web اصلی است.
+        # mweb به عنوان fallback استفاده می‌شود.
         # ----------------------------------------------------
 
         "extractor_args": {
-
             "youtube": [
                 "player_client=web,mweb"
             ]
@@ -192,7 +206,6 @@ def get_ydl_opts():
     # ========================================================
 
     if COOKIE_FILE:
-
         opts["cookiefile"] = COOKIE_FILE
 
     # ========================================================
@@ -205,7 +218,7 @@ def get_ydl_opts():
 
 
 # ============================================================
-# Print Formats
+# Print Available Formats
 # ============================================================
 
 def print_formats(info):
@@ -221,70 +234,141 @@ def print_formats(info):
     )
 
     if not formats:
-
         print(
             "⚠️ No formats returned by YouTube."
         )
-
         print("=" * 70)
-
         return
 
     for f in formats:
 
-        format_id = f.get(
-            "format_id"
-        )
-
-        height = f.get(
-            "height"
-        )
-
-        width = f.get(
-            "width"
-        )
-
-        ext = f.get(
-            "ext"
-        )
-
-        vcodec = f.get(
-            "vcodec"
-        )
-
-        acodec = f.get(
-            "acodec"
-        )
-
-        fps = f.get(
-            "fps"
-        )
-
-        filesize = f.get(
-            "filesize"
-        )
-
-        protocol = f.get(
-            "protocol"
-        )
-
         print(
-            f"format_id={format_id} | "
-            f"height={height} | "
-            f"width={width} | "
-            f"ext={ext} | "
-            f"vcodec={vcodec} | "
-            f"acodec={acodec} | "
-            f"fps={fps} | "
-            f"filesize={filesize} | "
-            f"protocol={protocol}"
+            f"format_id={f.get('format_id')} | "
+            f"height={f.get('height')} | "
+            f"width={f.get('width')} | "
+            f"ext={f.get('ext')} | "
+            f"vcodec={f.get('vcodec')} | "
+            f"acodec={f.get('acodec')} | "
+            f"fps={f.get('fps')} | "
+            f"filesize={f.get('filesize')} | "
+            f"protocol={f.get('protocol')}"
         )
 
     print("=" * 70)
 
 
 # ============================================================
-# Get Available Video Qualities
+# Format Score
+# ============================================================
+
+def format_score(fmt):
+
+    score = 0
+
+    # MP4 اولویت دارد
+    if fmt.get("ext") == "mp4":
+        score += 100
+
+    # Video
+    if fmt.get("vcodec") not in (
+        None,
+        "none"
+    ):
+        score += 50
+
+    # Audio
+    if fmt.get("acodec") not in (
+        None,
+        "none"
+    ):
+        score += 50
+
+    # FPS
+    fps = fmt.get("fps")
+
+    if fps:
+        try:
+            score += min(
+                int(float(fps)),
+                60
+            )
+        except Exception:
+            pass
+
+    # Bitrate
+    try:
+        score += int(
+            float(fmt.get("tbr") or 0)
+        )
+    except Exception:
+        pass
+
+    return score
+
+
+# ============================================================
+# Extract Available Qualities
+# ============================================================
+
+def extract_qualities(info):
+
+    qualities = {}
+
+    for fmt in info.get(
+        "formats",
+        []
+    ):
+
+        height = fmt.get("height")
+
+        width = fmt.get("width")
+
+        ext = fmt.get("ext")
+
+        vcodec = fmt.get("vcodec")
+
+        # بدون height
+        if not height:
+            continue
+
+        # تبدیل امن
+        try:
+            height = int(height)
+        except Exception:
+            continue
+
+        # کیفیت‌های خیلی پایین
+        if height < 144:
+            continue
+
+        # فقط audio
+        if not vcodec or vcodec == "none":
+            continue
+
+        # thumbnail / storyboard
+        if ext == "mhtml":
+            continue
+
+        current = qualities.get(height)
+
+        if current is None:
+            qualities[height] = fmt
+            continue
+
+        if format_score(fmt) > format_score(current):
+            qualities[height] = fmt
+
+    return dict(
+        sorted(
+            qualities.items(),
+            key=lambda item: item[0],
+            reverse=True
+        )
+    )
+
+
+# ============================================================
+# Get Video Information
 # ============================================================
 
 def get_video_data(url):
@@ -294,9 +378,7 @@ def get_video_data(url):
 
     ydl_opts = get_ydl_opts()
 
-    ydl_opts[
-        "skip_download"
-    ] = True
+    ydl_opts["skip_download"] = True
 
     with yt_dlp.YoutubeDL(
         ydl_opts
@@ -307,19 +389,97 @@ def get_video_data(url):
             download=False
         )
 
+    if not info:
+        raise RuntimeError(
+            "❌ اطلاعات ویدیو دریافت نشد."
+        )
+
     print_formats(info)
 
     # ========================================================
-    # Video information
+    # Video Information
     # ========================================================
 
     video_info = {
-
         "title": (
             info.get("title")
             or "نامشخص"
         ),
 
         "channel": (
-            info.get("
+            info.get("channel")
+            or info.get("uploader")
+            or "نامشخص"
+        ),
 
+        "views": (
+            info.get("view_count")
+            or 0
+        ),
+
+        "likes": (
+            info.get("like_count")
+            or 0
+        ),
+
+        "duration": (
+            info.get("duration")
+            or 0
+        ),
+
+        "thumbnail": (
+            info.get("thumbnail")
+            or ""
+        ),
+
+        "webpage_url": (
+            info.get("webpage_url")
+            or url
+        ),
+
+        "video_id": (
+            info.get("id")
+            or ""
+        )
+    }
+
+    # ========================================================
+    # Extract Qualities
+    # ========================================================
+
+    qualities = extract_qualities(info)
+
+    available_qualities = [
+        str(height)
+        for height in qualities.keys()
+    ]
+
+    print()
+    print(
+        "🎥 AVAILABLE QUALITIES:",
+        available_qualities
+    )
+    print()
+
+    return (
+        video_info,
+        available_qualities
+    )
+
+
+# ============================================================
+# Build Format Selector
+# ============================================================
+
+def build_format_selector(quality):
+
+    quality = int(quality)
+
+    # اولویت:
+    #
+    # 1. بهترین video تا کیفیت انتخابی
+    # 2. بهترین audio
+    # 3. fallback به format دارای video+audio
+    #
+    # این باعث می‌شود اگر مثلاً 720p جداگانه
+    # موجود باشد، فقط به
