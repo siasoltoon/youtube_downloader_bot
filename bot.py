@@ -1,8 +1,13 @@
-
 import subprocess
 import os
+import threading
+import uuid
+
+import boto3
 import telebot
 from telebot import types
+
+from botocore.exceptions import ClientError
 
 from downloader import (
     get_video_data,
@@ -15,15 +20,10 @@ from downloader import (
 # ============================================================
 
 try:
-
     result = subprocess.run(
-
         ["deno", "--version"],
-
         capture_output=True,
-
         text=True
-
     )
 
     print("DENO TEST:")
@@ -31,11 +31,7 @@ try:
     print(result.stderr)
 
 except Exception as e:
-
-    print(
-        "DENO TEST ERROR:",
-        repr(e)
-    )
+    print("DENO TEST ERROR:", repr(e))
 
 
 # ============================================================
@@ -43,42 +39,22 @@ except Exception as e:
 # ============================================================
 
 try:
-
     result = subprocess.run(
-
         ["ffmpeg", "-version"],
-
         capture_output=True,
-
         text=True
-
     )
 
     print("FFMPEG TEST:")
 
     if result.returncode == 0:
-
-        first_line = (
-            result.stdout
-            .splitlines()[0]
-        )
-
-        print(
-            first_line
-        )
-
+        first_line = result.stdout.splitlines()[0]
+        print(first_line)
     else:
-
-        print(
-            result.stderr
-        )
+        print(result.stderr)
 
 except Exception as e:
-
-    print(
-        "FFMPEG TEST ERROR:",
-        repr(e)
-    )
+    print("FFMPEG TEST ERROR:", repr(e))
 
 
 # ============================================================
@@ -86,73 +62,309 @@ except Exception as e:
 # ============================================================
 
 try:
-
     result = subprocess.run(
-
         [
             "curl",
             "-4",
             "-I",
             "https://www.youtube.com"
         ],
-
         capture_output=True,
-
         text=True,
-
         timeout=20
-
     )
 
-    print(
-        "YOUTUBE CONNECTION TEST:"
-    )
-
-    print(
-        result.stdout
-    )
-
-    print(
-        result.stderr
-    )
+    print("YOUTUBE CONNECTION TEST:")
+    print(result.stdout)
+    print(result.stderr)
 
 except Exception as e:
+    print("YOUTUBE TEST ERROR:", repr(e))
 
-    print(
-        "YOUTUBE TEST ERROR:",
-        repr(e)
+
+# ============================================================
+# Environment Variables
+# ============================================================
+
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+
+FILONE_ACCESS_KEY = os.getenv("FILONE_ACCESS_KEY")
+FILONE_SECRET_KEY = os.getenv("FILONE_SECRET_KEY")
+FILONE_BUCKET = os.getenv("FILONE_BUCKET")
+FILONE_ENDPOINT = os.getenv("FILONE_ENDPOINT")
+
+
+# ============================================================
+# Validate Environment Variables
+# ============================================================
+
+if not BOT_TOKEN:
+    raise RuntimeError(
+        "BOT_TOKEN پیدا نشد!"
     )
+
+
+if not FILONE_ACCESS_KEY:
+    raise RuntimeError(
+        "FILONE_ACCESS_KEY پیدا نشد!"
+    )
+
+
+if not FILONE_SECRET_KEY:
+    raise RuntimeError(
+        "FILONE_SECRET_KEY پیدا نشد!"
+    )
+
+
+if not FILONE_BUCKET:
+    raise RuntimeError(
+        "FILONE_BUCKET پیدا نشد!"
+    )
+
+
+if not FILONE_ENDPOINT:
+    raise RuntimeError(
+        "FILONE_ENDPOINT پیدا نشد!"
+    )
+
+
+print()
+print("=" * 60)
+print("FIL ONE CONFIGURATION")
+print("=" * 60)
+
+print(
+    "Access Key:",
+    bool(FILONE_ACCESS_KEY)
+)
+
+print(
+    "Secret Key:",
+    bool(FILONE_SECRET_KEY)
+)
+
+print(
+    "Bucket:",
+    FILONE_BUCKET
+)
+
+print(
+    "Endpoint:",
+    FILONE_ENDPOINT
+)
+
+print("=" * 60)
+
+
+# ============================================================
+# Fil One S3 Client
+# ============================================================
+
+s3 = boto3.client(
+    "s3",
+
+    endpoint_url=FILONE_ENDPOINT,
+
+    aws_access_key_id=FILONE_ACCESS_KEY,
+
+    aws_secret_access_key=FILONE_SECRET_KEY,
+
+    region_name="eu-west-1"
+)
 
 
 # ============================================================
 # Telegram Bot
 # ============================================================
 
-TOKEN = os.getenv(
-    "BOT_TOKEN"
-)
-
-if not TOKEN:
-
-    raise RuntimeError(
-        "BOT_TOKEN پیدا نشد!"
-    )
-
-
 bot = telebot.TeleBot(
-
-    TOKEN,
-
+    BOT_TOKEN,
     parse_mode="HTML"
-
 )
 
 
 # ============================================================
-# User data
+# User Data
 # ============================================================
 
 user_data = {}
+
+
+# ============================================================
+# Upload File To Fil One
+# ============================================================
+
+def upload_to_filo(file_path):
+    """
+    Upload local file to Fil One.
+
+    Returns:
+        object_key
+    """
+
+    filename = os.path.basename(file_path)
+
+    unique_id = uuid.uuid4().hex
+
+    object_key = (
+        f"telegram-videos/"
+        f"{unique_id}_"
+        f"{filename}"
+    )
+
+    print()
+    print("=" * 60)
+    print("⬆️ UPLOADING TO FIL ONE")
+    print("=" * 60)
+
+    print(
+        "Local file:",
+        file_path
+    )
+
+    print(
+        "Bucket:",
+        FILONE_BUCKET
+    )
+
+    print(
+        "Object:",
+        object_key
+    )
+
+    try:
+
+        s3.upload_file(
+            file_path,
+            FILONE_BUCKET,
+            object_key,
+
+            ExtraArgs={
+                "ContentType": "video/mp4"
+            }
+        )
+
+        print(
+            "✅ UPLOAD SUCCESS"
+        )
+
+        return object_key
+
+    except Exception as e:
+
+        print(
+            "❌ FIL ONE UPLOAD ERROR:",
+            repr(e)
+        )
+
+        raise
+
+
+# ============================================================
+# Create Temporary Download URL
+# ============================================================
+
+def create_download_url(object_key):
+    """
+    Create a presigned URL valid for 2 hours.
+    """
+
+    expire_seconds = 2 * 60 * 60
+
+    print()
+    print(
+        "🔗 Creating presigned URL..."
+    )
+
+    url = s3.generate_presigned_url(
+        ClientMethod="get_object",
+
+        Params={
+            "Bucket": FILONE_BUCKET,
+            "Key": object_key
+        },
+
+        ExpiresIn=expire_seconds
+    )
+
+    print(
+        "✅ URL CREATED"
+    )
+
+    print(
+        "URL expires in:",
+        expire_seconds,
+        "seconds"
+    )
+
+    return url
+
+
+# ============================================================
+# Delete File From Fil One
+# ============================================================
+
+def delete_from_filo(object_key):
+    """
+    Delete object from Fil One.
+    """
+
+    try:
+
+        print()
+        print(
+            "🗑 Deleting object from Fil One:"
+        )
+
+        print(
+            object_key
+        )
+
+        s3.delete_object(
+            Bucket=FILONE_BUCKET,
+            Key=object_key
+        )
+
+        print(
+            "✅ FIL ONE OBJECT DELETED"
+        )
+
+    except Exception as e:
+
+        print(
+            "❌ FIL ONE DELETE ERROR:",
+            repr(e)
+        )
+
+
+# ============================================================
+# Schedule Fil One Cleanup
+# ============================================================
+
+def schedule_cleanup(object_key):
+    """
+    Delete uploaded object after 2 hours.
+
+    Important:
+    This timer works while the Railway process is running.
+    """
+
+    cleanup_seconds = 2 * 60 * 60
+
+    print(
+        f"⏰ Cleanup scheduled in "
+        f"{cleanup_seconds} seconds"
+    )
+
+    timer = threading.Timer(
+        cleanup_seconds,
+        delete_from_filo,
+        args=(object_key,)
+    )
+
+    timer.daemon = True
+
+    timer.start()
 
 
 # ============================================================
@@ -165,17 +377,15 @@ user_data = {}
 def start(message):
 
     bot.send_message(
-
         message.chat.id,
 
-        "سلام 👋\n"
+        "سلام 👋\n\n"
         "لینک ویدیوی YouTube رو بفرست."
-
     )
 
 
 # ============================================================
-# Receive URL
+# Receive YouTube URL
 # ============================================================
 
 @bot.message_handler(
@@ -186,11 +396,9 @@ def handle_url(message):
     if not message.text:
 
         bot.send_message(
-
             message.chat.id,
 
             "❌ لطفاً لینک YouTube ارسال کن."
-
         )
 
         return
@@ -205,11 +413,9 @@ def handle_url(message):
     ):
 
         bot.send_message(
-
             message.chat.id,
 
             "❌ لطفاً لینک معتبر ارسال کن."
-
         )
 
         return
@@ -219,13 +425,16 @@ def handle_url(message):
         message.chat.id,
 
         "⏳ در حال دریافت اطلاعات ویدیو..."
-
     )
 
     try:
 
-        video_info, qualities = (
-            get_video_data(url)
+        # ====================================================
+        # Get Video Information
+        # ====================================================
+
+        video_info, qualities = get_video_data(
+            url
         )
 
         if not qualities:
@@ -237,13 +446,12 @@ def handle_url(message):
                 message.chat.id,
 
                 status_message.message_id
-
             )
 
             return
 
         # ====================================================
-        # Save user request
+        # Save User Request
         # ====================================================
 
         user_data[
@@ -255,11 +463,10 @@ def handle_url(message):
             "video_info": video_info,
 
             "qualities": qualities
-
         }
 
         # ====================================================
-        # Video information
+        # Video Information
         # ====================================================
 
         text = (
@@ -279,11 +486,10 @@ def handle_url(message):
             f"{video_info['duration']} ثانیه\n\n"
 
             f"🎥 یک کیفیت را انتخاب کن:"
-
         )
 
         # ====================================================
-        # Quality buttons
+        # Quality Buttons
         # ====================================================
 
         markup = types.InlineKeyboardMarkup(
@@ -303,9 +509,7 @@ def handle_url(message):
                     callback_data=(
                         f"quality:{quality}"
                     )
-
                 )
-
             )
 
         markup.add(
@@ -321,7 +525,6 @@ def handle_url(message):
             status_message.message_id,
 
             reply_markup=markup
-
         )
 
     except Exception as e:
@@ -330,6 +533,7 @@ def handle_url(message):
         print(
             "❌ Downloader error:"
         )
+
         print(
             repr(e)
         )
@@ -338,12 +542,12 @@ def handle_url(message):
 
             bot.edit_message_text(
 
-                "❌ هنگام دریافت اطلاعات ویدیو خطایی رخ داد.",
+                "❌ هنگام دریافت اطلاعات ویدیو "
+                "خطایی رخ داد.",
 
                 message.chat.id,
 
                 status_message.message_id
-
             )
 
         except Exception:
@@ -352,8 +556,8 @@ def handle_url(message):
 
                 message.chat.id,
 
-                "❌ هنگام دریافت اطلاعات ویدیو خطایی رخ داد."
-
+                "❌ هنگام دریافت اطلاعات ویدیو "
+                "خطایی رخ داد."
             )
 
 
@@ -367,7 +571,6 @@ def handle_url(message):
         call.data.startswith(
             "quality:"
         )
-
 )
 def quality_selected(call):
 
@@ -387,7 +590,6 @@ def quality_selected(call):
             call.id,
 
             "اطلاعات این درخواست منقضی شده."
-
         )
 
         return
@@ -406,10 +608,11 @@ def quality_selected(call):
 
         f"⏳ در حال دانلود "
         f"{quality}p..."
-
     )
 
     file_path = None
+
+    object_key = None
 
     try:
 
@@ -421,8 +624,10 @@ def quality_selected(call):
             f"{quality}p"
         )
 
+        print("=" * 60)
+
         # ====================================================
-        # Download
+        # Download Video
         # ====================================================
 
         file_path = download_video(
@@ -430,15 +635,12 @@ def quality_selected(call):
             url,
 
             quality
-
         )
 
         if not file_path:
 
             raise FileNotFoundError(
-
                 "Download returned no file."
-
             )
 
         if not os.path.exists(
@@ -446,9 +648,7 @@ def quality_selected(call):
         ):
 
             raise FileNotFoundError(
-
                 "Downloaded file not found."
-
             )
 
         file_size = os.path.getsize(
@@ -456,72 +656,93 @@ def quality_selected(call):
         )
 
         print(
-
             f"📦 File size: "
             f"{file_size / (1024 * 1024):.2f} MB"
-
         )
 
         # ====================================================
-        # Upload to Telegram
+        # Upload To Fil One
         # ====================================================
 
         bot.edit_message_text(
 
-            "📤 دانلود انجام شد؛ "
-            "در حال ارسال فایل...",
+            "📤 دانلود انجام شد.\n"
+            "☁️ در حال آپلود روی سرور...",
 
             chat_id,
 
             status_message.message_id
-
         )
 
-        with open(
-            file_path,
-            "rb"
-        ) as video:
-
-            bot.send_video(
-
-                chat_id,
-
-                video,
-
-                caption=(
-                    f"🎬 کیفیت: "
-                    f"{quality}p"
-                ),
-
-                supports_streaming=True
-
-            )
+        object_key = upload_to_filo(
+            file_path
+        )
 
         # ====================================================
-        # Delete status message
+        # Create Download URL
         # ====================================================
 
-        try:
+        download_url = create_download_url(
+            object_key
+        )
 
-            bot.delete_message(
+        # ====================================================
+        # Schedule Cleanup
+        # ====================================================
 
-                chat_id,
+        schedule_cleanup(
+            object_key
+        )
 
-                status_message.message_id
+        # ====================================================
+        # Send Link To User
+        # ====================================================
 
-            )
+        markup = types.InlineKeyboardMarkup()
 
-        except Exception as e:
+        download_button = types.InlineKeyboardButton(
 
-            print(
+            "⬇️ دانلود ویدیو",
 
-                "Status delete error:",
-                repr(e)
+            url=download_url
+        )
 
-            )
+        markup.add(
+            download_button
+        )
+
+        bot.edit_message_text(
+
+            f"✅ <b>ویدیو آماده است!</b>\n\n"
+
+            f"🎬 کیفیت: <b>{quality}p</b>\n"
+
+            f"📦 حجم: "
+            f"<b>{file_size / (1024 * 1024):.2f} MB</b>\n\n"
+
+            f"⏳ این لینک تا <b>۲ ساعت</b> معتبر است.\n"
+
+            f"بعد از آن فایل از سرور حذف می‌شود.",
+
+            chat_id,
+
+            status_message.message_id,
+
+            reply_markup=markup
+        )
+
+        print()
+        print(
+            "✅ VIDEO READY"
+        )
 
         print(
-            "✅ Video sent successfully."
+            "Object:",
+            object_key
+        )
+
+        print(
+            "Download URL created successfully."
         )
 
     except Exception as e:
@@ -530,21 +751,23 @@ def quality_selected(call):
         print(
             "❌ Download / Upload error:"
         )
+
         print(
             repr(e)
         )
+
         print()
 
         try:
 
             bot.edit_message_text(
 
-                "❌ دانلود یا ارسال ویدیو ناموفق بود.",
+                "❌ دانلود یا آپلود ویدیو "
+                "ناموفق بود.",
 
                 chat_id,
 
                 status_message.message_id
-
             )
 
         except Exception:
@@ -553,22 +776,20 @@ def quality_selected(call):
 
                 chat_id,
 
-                "❌ دانلود یا ارسال ویدیو ناموفق بود."
-
+                "❌ دانلود یا آپلود ویدیو "
+                "ناموفق بود."
             )
 
     finally:
 
         # ====================================================
-        # Delete temporary file
+        # Delete Local Temporary File
         # ====================================================
 
         if (
-
             file_path
             and
             os.path.exists(file_path)
-
         ):
 
             try:
@@ -578,19 +799,15 @@ def quality_selected(call):
                 )
 
                 print(
-
-                    f"🗑 Deleted: "
+                    f"🗑 Deleted local file: "
                     f"{file_path}"
-
                 )
 
             except Exception as e:
 
                 print(
-
-                    "File cleanup error:",
+                    "Local file cleanup error:",
                     repr(e)
-
                 )
 
 
@@ -598,15 +815,29 @@ def quality_selected(call):
 # Start Bot
 # ============================================================
 
+print()
+print("=" * 60)
+print("🤖 BOT IS STARTING...")
+print("=" * 60)
+
 print(
-    "🤖 Bot is starting..."
+    "☁️ Storage: Fil One"
 )
+
+print(
+    "🔗 Delivery: Presigned URL"
+)
+
+print(
+    "⏳ URL lifetime: 2 hours"
+)
+
+print("=" * 60)
+
 
 bot.infinity_polling(
 
     timeout=60,
 
     long_polling_timeout=60
-
 )
-
