@@ -1,4 +1,4 @@
-```python
+
 import os
 import base64
 import tempfile
@@ -831,4 +831,4 @@ if __name__ == "__main__":
         print(
             "PO provider: disabled"
         )
-```
+
