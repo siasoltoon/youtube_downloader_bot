@@ -1,19 +1,29 @@
+
 import subprocess
 import os
 import telebot
 from telebot import types
 
+from downloader import (
+    get_video_data,
+    download_video
+)
 
-# =========================
+
+# ============================================================
 # Deno Test
-# =========================
+# ============================================================
 
 try:
 
     result = subprocess.run(
+
         ["deno", "--version"],
+
         capture_output=True,
+
         text=True
+
     )
 
     print("DENO TEST:")
@@ -28,24 +38,33 @@ except Exception as e:
     )
 
 
-# =========================
+# ============================================================
 # FFmpeg Test
-# =========================
+# ============================================================
 
 try:
 
     result = subprocess.run(
+
         ["ffmpeg", "-version"],
+
         capture_output=True,
+
         text=True
+
     )
 
     print("FFMPEG TEST:")
 
     if result.returncode == 0:
 
+        first_line = (
+            result.stdout
+            .splitlines()[0]
+        )
+
         print(
-            result.stdout.splitlines()[0]
+            first_line
         )
 
     else:
@@ -62,29 +81,40 @@ except Exception as e:
     )
 
 
-# =========================
+# ============================================================
 # YouTube Connection Test
-# =========================
+# ============================================================
 
 try:
 
     result = subprocess.run(
+
         [
             "curl",
             "-4",
             "-I",
             "https://www.youtube.com"
         ],
+
         capture_output=True,
+
         text=True,
+
         timeout=20
+
     )
 
-    print("YOUTUBE CONNECTION TEST:")
+    print(
+        "YOUTUBE CONNECTION TEST:"
+    )
 
-    print(result.stdout)
+    print(
+        result.stdout
+    )
 
-    print(result.stderr)
+    print(
+        result.stderr
+    )
 
 except Exception as e:
 
@@ -94,19 +124,9 @@ except Exception as e:
     )
 
 
-# =========================
-# Downloader
-# =========================
-
-from downloader import (
-    get_video_data,
-    download_video
-)
-
-
-# =========================
+# ============================================================
 # Telegram Bot
-# =========================
+# ============================================================
 
 TOKEN = os.getenv(
     "BOT_TOKEN"
@@ -120,18 +140,24 @@ if not TOKEN:
 
 
 bot = telebot.TeleBot(
+
     TOKEN,
+
     parse_mode="HTML"
+
 )
 
 
-# اطلاعات کاربران
+# ============================================================
+# User data
+# ============================================================
+
 user_data = {}
 
 
-# =========================
+# ============================================================
 # /start
-# =========================
+# ============================================================
 
 @bot.message_handler(
     commands=["start"]
@@ -144,12 +170,13 @@ def start(message):
 
         "سلام 👋\n"
         "لینک ویدیوی YouTube رو بفرست."
+
     )
 
 
-# =========================
+# ============================================================
 # Receive URL
-# =========================
+# ============================================================
 
 @bot.message_handler(
     func=lambda message: True
@@ -159,8 +186,11 @@ def handle_url(message):
     if not message.text:
 
         bot.send_message(
+
             message.chat.id,
+
             "❌ لطفاً لینک YouTube ارسال کن."
+
         )
 
         return
@@ -179,6 +209,7 @@ def handle_url(message):
             message.chat.id,
 
             "❌ لطفاً لینک معتبر ارسال کن."
+
         )
 
         return
@@ -188,6 +219,7 @@ def handle_url(message):
         message.chat.id,
 
         "⏳ در حال دریافت اطلاعات ویدیو..."
+
     )
 
     try:
@@ -200,16 +232,20 @@ def handle_url(message):
 
             bot.edit_message_text(
 
-                "❌ هیچ کیفیت ویدیویی قابل استفاده‌ای پیدا نشد.",
+                "❌ هیچ کیفیت قابل استفاده‌ای پیدا نشد.",
 
                 message.chat.id,
 
                 status_message.message_id
+
             )
 
             return
 
-        # ذخیره اطلاعات کاربر
+        # ====================================================
+        # Save user request
+        # ====================================================
+
         user_data[
             message.from_user.id
         ] = {
@@ -222,9 +258,9 @@ def handle_url(message):
 
         }
 
-        # =========================
+        # ====================================================
         # Video information
-        # =========================
+        # ====================================================
 
         text = (
 
@@ -243,11 +279,12 @@ def handle_url(message):
             f"{video_info['duration']} ثانیه\n\n"
 
             f"🎥 یک کیفیت را انتخاب کن:"
+
         )
 
-        # =========================
+        # ====================================================
         # Quality buttons
-        # =========================
+        # ====================================================
 
         markup = types.InlineKeyboardMarkup(
             row_width=2
@@ -284,12 +321,16 @@ def handle_url(message):
             status_message.message_id,
 
             reply_markup=markup
+
         )
 
     except Exception as e:
 
+        print()
         print(
-            "Downloader error:",
+            "❌ Downloader error:"
+        )
+        print(
             repr(e)
         )
 
@@ -302,6 +343,7 @@ def handle_url(message):
                 message.chat.id,
 
                 status_message.message_id
+
             )
 
         except Exception:
@@ -311,12 +353,13 @@ def handle_url(message):
                 message.chat.id,
 
                 "❌ هنگام دریافت اطلاعات ویدیو خطایی رخ داد."
+
             )
 
 
-# =========================
+# ============================================================
 # Quality Selection
-# =========================
+# ============================================================
 
 @bot.callback_query_handler(
 
@@ -344,6 +387,7 @@ def quality_selected(call):
             call.id,
 
             "اطلاعات این درخواست منقضی شده."
+
         )
 
         return
@@ -360,38 +404,41 @@ def quality_selected(call):
 
         chat_id,
 
-        f"⏳ در حال دانلود کیفیت "
+        f"⏳ در حال دانلود "
         f"{quality}p..."
+
     )
 
     file_path = None
 
     try:
 
-        print(
-            "=" * 50
-        )
+        print()
+        print("=" * 60)
 
         print(
             f"⬇️ Starting download: "
             f"{quality}p"
         )
 
-        # =========================
+        # ====================================================
         # Download
-        # =========================
+        # ====================================================
 
         file_path = download_video(
 
             url,
 
             quality
+
         )
 
         if not file_path:
 
             raise FileNotFoundError(
+
                 "Download returned no file."
+
             )
 
         if not os.path.exists(
@@ -401,6 +448,7 @@ def quality_selected(call):
             raise FileNotFoundError(
 
                 "Downloaded file not found."
+
             )
 
         file_size = os.path.getsize(
@@ -408,13 +456,15 @@ def quality_selected(call):
         )
 
         print(
+
             f"📦 File size: "
             f"{file_size / (1024 * 1024):.2f} MB"
+
         )
 
-        # =========================
-        # Telegram upload
-        # =========================
+        # ====================================================
+        # Upload to Telegram
+        # ====================================================
 
         bot.edit_message_text(
 
@@ -424,6 +474,7 @@ def quality_selected(call):
             chat_id,
 
             status_message.message_id
+
         )
 
         with open(
@@ -443,11 +494,12 @@ def quality_selected(call):
                 ),
 
                 supports_streaming=True
+
             )
 
-        # =========================
-        # Cleanup status
-        # =========================
+        # ====================================================
+        # Delete status message
+        # ====================================================
 
         try:
 
@@ -456,13 +508,16 @@ def quality_selected(call):
                 chat_id,
 
                 status_message.message_id
+
             )
 
         except Exception as e:
 
             print(
+
                 "Status delete error:",
                 repr(e)
+
             )
 
         print(
@@ -471,21 +526,14 @@ def quality_selected(call):
 
     except Exception as e:
 
-        print(
-            "=" * 50
-        )
-
+        print()
         print(
             "❌ Download / Upload error:"
         )
-
         print(
             repr(e)
         )
-
-        print(
-            "=" * 50
-        )
+        print()
 
         try:
 
@@ -496,6 +544,7 @@ def quality_selected(call):
                 chat_id,
 
                 status_message.message_id
+
             )
 
         except Exception:
@@ -505,18 +554,21 @@ def quality_selected(call):
                 chat_id,
 
                 "❌ دانلود یا ارسال ویدیو ناموفق بود."
+
             )
 
     finally:
 
-        # =========================
-        # Delete downloaded file
-        # =========================
+        # ====================================================
+        # Delete temporary file
+        # ====================================================
 
         if (
+
             file_path
             and
             os.path.exists(file_path)
+
         ):
 
             try:
@@ -526,27 +578,35 @@ def quality_selected(call):
                 )
 
                 print(
+
                     f"🗑 Deleted: "
                     f"{file_path}"
+
                 )
 
             except Exception as e:
 
                 print(
+
                     "File cleanup error:",
                     repr(e)
+
                 )
 
 
-# =========================
+# ============================================================
 # Start Bot
-# =========================
+# ============================================================
 
 print(
     "🤖 Bot is starting..."
 )
 
 bot.infinity_polling(
+
     timeout=60,
+
     long_polling_timeout=60
+
 )
+
