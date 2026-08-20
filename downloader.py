@@ -17,9 +17,10 @@ POT_PROVIDER_URL = os.getenv(
 ).strip().rstrip("/")
 
 
-DOWNLOAD_DIR = Path(
-    tempfile.gettempdir()
-) / "youtube_downloads"
+DOWNLOAD_DIR = (
+    Path(tempfile.gettempdir())
+    / "youtube_downloads"
+)
 
 DOWNLOAD_DIR.mkdir(
     parents=True,
@@ -32,17 +33,21 @@ DOWNLOAD_DIR.mkdir(
 # ============================================================
 
 def create_cookie_file():
+
     cookies_b64 = os.getenv(
         "YOUTUBE_COOKIES_B64"
     )
 
     if not cookies_b64:
+
         print(
             "⚠️ YOUTUBE_COOKIES_B64 تنظیم نشده است."
         )
+
         return None
 
     try:
+
         lines = cookies_b64.splitlines()
 
         clean_lines = []
@@ -111,12 +116,15 @@ def configure_pot_provider(opts):
         print("=" * 70)
         print("⚠️ PO TOKEN PROVIDER")
         print("=" * 70)
+
         print(
             "YOUTUBE_POT_PROVIDER_URL تنظیم نشده است."
         )
+
         print(
             "PO Token Provider غیرفعال است."
         )
+
         print("=" * 70)
         print()
 
@@ -198,21 +206,15 @@ def get_ydl_opts():
         # ----------------------------------------------------
 
         "outtmpl": str(
-            DOWNLOAD_DIR / "%(id)s.%(ext)s"
+            DOWNLOAD_DIR
+            / "%(id)s.%(ext)s"
         ),
 
         # ----------------------------------------------------
-        # Merge / Remux
+        # Merge
         # ----------------------------------------------------
 
         "merge_output_format": "mp4",
-
-        "postprocessors": [
-            {
-                "key": "FFmpegVideoRemuxer",
-                "preferedformat": "mp4"
-            }
-        ],
 
         # ----------------------------------------------------
         # YouTube clients
@@ -297,22 +299,40 @@ def format_score(fmt):
 
     score = 0
 
-    if fmt.get("ext") == "mp4":
+    ext = fmt.get("ext")
+
+    vcodec = fmt.get(
+        "vcodec"
+    )
+
+    acodec = fmt.get(
+        "acodec"
+    )
+
+    # MP4 preferred
+    if ext == "mp4":
         score += 100
 
-    if fmt.get("vcodec") not in (
-        None,
-        "none"
+    # Video
+    if (
+        vcodec
+        and
+        vcodec != "none"
     ):
         score += 50
 
-    if fmt.get("acodec") not in (
-        None,
-        "none"
+    # Audio
+    if (
+        acodec
+        and
+        acodec != "none"
     ):
         score += 50
 
-    fps = fmt.get("fps")
+    # FPS
+    fps = fmt.get(
+        "fps"
+    )
 
     if fps:
 
@@ -326,6 +346,7 @@ def format_score(fmt):
         except Exception:
             pass
 
+    # Bitrate
     try:
 
         score += int(
@@ -348,10 +369,12 @@ def extract_qualities(info):
 
     qualities = {}
 
-    for fmt in info.get(
+    formats = info.get(
         "formats",
         []
-    ):
+    )
+
+    for fmt in formats:
 
         height = fmt.get(
             "height"
@@ -365,6 +388,7 @@ def extract_qualities(info):
             "ext"
         )
 
+        # No height
         if not height:
             continue
 
@@ -378,12 +402,19 @@ def extract_qualities(info):
 
             continue
 
+        # Ignore tiny formats
         if height < 144:
             continue
 
-        if not vcodec or vcodec == "none":
+        # Audio-only
+        if (
+            not vcodec
+            or
+            vcodec == "none"
+        ):
             continue
 
+        # Thumbnail/storyboard
         if ext == "mhtml":
             continue
 
@@ -399,11 +430,19 @@ def extract_qualities(info):
 
             continue
 
-        if format_score(fmt) > format_score(current):
+        if (
+            format_score(fmt)
+            >
+            format_score(current)
+        ):
 
             qualities[
                 height
             ] = fmt
+
+    # --------------------------------------------------------
+    # Sort from highest to lowest
+    # --------------------------------------------------------
 
     return dict(
         sorted(
@@ -498,10 +537,53 @@ def get_video_data(url):
         info
     )
 
-    available_qualities = [
-        str(height)
-        for height in qualities.keys()
+    # --------------------------------------------------------
+    # Desired qualities
+    # --------------------------------------------------------
+
+    preferred_order = [
+        2160,
+        1440,
+        1080,
+        720,
+        480,
+        360,
+        240,
+        144
     ]
+
+    available_qualities = []
+
+    for quality in preferred_order:
+
+        if quality in qualities:
+
+            available_qualities.append(
+                str(quality)
+            )
+
+    # --------------------------------------------------------
+    # Add unusual heights if YouTube provides them
+    # --------------------------------------------------------
+
+    for height in sorted(
+        qualities.keys(),
+        reverse=True
+    ):
+
+        height_str = str(
+            height
+        )
+
+        if (
+            height_str
+            not in
+            available_qualities
+        ):
+
+            available_qualities.append(
+                height_str
+            )
 
     print()
     print(
@@ -529,6 +611,14 @@ def build_format_selector(
         quality
     )
 
+    # --------------------------------------------------------
+    # Video-only + audio
+    #
+    # This allows 1080p / 1440p / 2160p
+    # even when YouTube does not provide a
+    # combined audio+video format.
+    # --------------------------------------------------------
+
     return (
         f"bestvideo[height<={quality}]"
         f"+bestaudio/"
@@ -555,7 +645,10 @@ def find_final_file(
             expected
         )
 
-    # fallback: پیدا کردن فایل‌های MP4
+    # --------------------------------------------------------
+    # Fallback
+    # --------------------------------------------------------
+
     matches = list(
         DOWNLOAD_DIR.glob(
             f"{video_id}*.mp4"
@@ -600,7 +693,7 @@ def download_video(
     )
 
     # --------------------------------------------------------
-    # Extract video ID first
+    # Get video information
     # --------------------------------------------------------
 
     info_opts = get_ydl_opts()
@@ -630,6 +723,55 @@ def download_video(
     )
 
     # --------------------------------------------------------
+    # Determine available video heights
+    # --------------------------------------------------------
+
+    qualities = extract_qualities(
+        info
+    )
+
+    available_heights = sorted(
+        qualities.keys()
+    )
+
+    if not available_heights:
+
+        raise RuntimeError(
+            "❌ هیچ فرمت ویدیویی پیدا نشد."
+        )
+
+    # --------------------------------------------------------
+    # Find best height <= requested quality
+    # --------------------------------------------------------
+
+    valid_heights = [
+
+        h
+
+        for h in available_heights
+
+        if h <= quality
+
+    ]
+
+    if not valid_heights:
+
+        selected_height = min(
+            available_heights
+        )
+
+    else:
+
+        selected_height = max(
+            valid_heights
+        )
+
+    print(
+        f"🎥 Selected video height: "
+        f"{selected_height}p"
+    )
+
+    # --------------------------------------------------------
     # Clean old files for this video
     # --------------------------------------------------------
 
@@ -646,12 +788,12 @@ def download_video(
             pass
 
     # --------------------------------------------------------
-    # Format
+    # Format selector
     # --------------------------------------------------------
 
     format_selector = (
         build_format_selector(
-            quality
+            selected_height
         )
     )
 
@@ -663,7 +805,8 @@ def download_video(
     )
 
     print(
-        f"⬇️ Downloading {quality}p..."
+        f"⬇️ Downloading "
+        f"{selected_height}p..."
     )
 
     print("=" * 70)
@@ -683,13 +826,20 @@ def download_video(
             / f"{video_id}.%(ext)s"
         ),
 
+        # Force MP4 after merging
         "merge_output_format": "mp4",
 
+        # ----------------------------------------------------
+        # FFmpeg
+        # ----------------------------------------------------
+
         "postprocessors": [
+
             {
                 "key": "FFmpegVideoRemuxer",
                 "preferedformat": "mp4"
             }
+
         ]
 
     })
@@ -758,7 +908,7 @@ def download_video(
         )
 
     # --------------------------------------------------------
-    # Validate file
+    # Validate
     # --------------------------------------------------------
 
     final_path = Path(
@@ -768,7 +918,7 @@ def download_video(
     if not final_path.is_file():
 
         raise FileNotFoundError(
-            "Final video is not a regular file."
+            "Downloaded video is not a regular file."
         )
 
     file_size = (
@@ -793,14 +943,17 @@ def download_video(
     )
 
     print(
+        f"🎥 Quality: "
+        f"{selected_height}p"
+    )
+
+    print(
         f"📦 Size: "
         f"{file_size / (1024 * 1024):.2f} MB"
     )
 
     print("=" * 70)
 
-    # بسیار مهم:
-    # مسیر فایل نهایی را برمی‌گردانیم
     return final_file
 
 
