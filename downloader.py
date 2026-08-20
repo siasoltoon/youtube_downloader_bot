@@ -1,3 +1,4 @@
+
 import os
 import base64
 import tempfile
@@ -16,29 +17,38 @@ POT_PROVIDER_URL = os.getenv(
 ).strip().rstrip("/")
 
 
+DOWNLOAD_DIR = Path(
+    os.getenv(
+        "YOUTUBE_DOWNLOAD_DIR",
+        "/tmp/youtube_downloads"
+    )
+)
+
+
 # ============================================================
 # YouTube Cookies
 # ============================================================
 
 def create_cookie_file():
-    cookies_b64 = os.getenv("YOUTUBE_COOKIES_B64")
+    cookies_b64 = os.getenv(
+        "YOUTUBE_COOKIES_B64"
+    )
 
     if not cookies_b64:
-        print("⚠️ YOUTUBE_COOKIES_B64 تنظیم نشده است.")
+        print(
+            "⚠️ YOUTUBE_COOKIES_B64 تنظیم نشده است."
+        )
         return None
 
     try:
-        # حذف فاصله‌ها و خطوط خالی
-        lines = cookies_b64.splitlines()
         clean_lines = []
 
-        for line in lines:
+        for line in cookies_b64.splitlines():
             line = line.strip()
 
             if not line:
                 continue
 
-            # اگر مقدار با header/footer اضافی آمده باشد
             if line.startswith("-----"):
                 continue
 
@@ -61,7 +71,10 @@ def create_cookie_file():
         "youtube_cookies.txt"
     )
 
-    with open(cookie_file, "wb") as f:
+    with open(
+        cookie_file,
+        "wb"
+    ) as f:
         f.write(cookie_data)
 
     print(
@@ -83,13 +96,14 @@ def configure_pot_provider(opts):
     """
     Configure bgutil-ytdlp-pot-provider.
 
-    Railway example:
+    Example:
 
     YOUTUBE_POT_PROVIDER_URL=
     http://bgutil-ytdlp-pot-provider.railway.internal:4416
     """
 
     if not POT_PROVIDER_URL:
+
         print()
         print("=" * 70)
         print("⚠️ PO TOKEN PROVIDER")
@@ -109,12 +123,15 @@ def configure_pot_provider(opts):
     print("=" * 70)
     print("🔐 PO TOKEN PROVIDER")
     print("=" * 70)
+
     print(
         f"Provider URL: {POT_PROVIDER_URL}"
     )
+
     print(
         "Provider mode: automatic"
     )
+
     print("=" * 70)
 
     extractor_args = opts.setdefault(
@@ -122,13 +139,6 @@ def configure_pot_provider(opts):
         {}
     )
 
-    # bgutil HTTP provider
-    #
-    # معادل:
-    #
-    # --extractor-args
-    # youtubepot-bgutilhttp:base_url=http://...
-    #
     extractor_args[
         "youtubepot-bgutilhttp"
     ] = [
@@ -137,12 +147,13 @@ def configure_pot_provider(opts):
 
 
 # ============================================================
-# Base yt-dlp Options
+# yt-dlp Options
 # ============================================================
 
 def get_ydl_opts():
 
     opts = {
+
         # ----------------------------------------------------
         # General
         # ----------------------------------------------------
@@ -189,9 +200,6 @@ def get_ydl_opts():
 
         # ----------------------------------------------------
         # YouTube clients
-        #
-        # web اصلی است.
-        # mweb به عنوان fallback استفاده می‌شود.
         # ----------------------------------------------------
 
         "extractor_args": {
@@ -206,26 +214,32 @@ def get_ydl_opts():
     # ========================================================
 
     if COOKIE_FILE:
-        opts["cookiefile"] = COOKIE_FILE
+        opts[
+            "cookiefile"
+        ] = COOKIE_FILE
 
     # ========================================================
     # PO Token Provider
     # ========================================================
 
-    configure_pot_provider(opts)
+    configure_pot_provider(
+        opts
+    )
 
     return opts
 
 
 # ============================================================
-# Print Available Formats
+# Print Formats
 # ============================================================
 
 def print_formats(info):
 
     print()
     print("=" * 70)
-    print("AVAILABLE YOUTUBE FORMATS")
+    print(
+        "AVAILABLE YOUTUBE FORMATS"
+    )
     print("=" * 70)
 
     formats = info.get(
@@ -234,10 +248,15 @@ def print_formats(info):
     )
 
     if not formats:
+
         print(
             "⚠️ No formats returned by YouTube."
         )
-        print("=" * 70)
+
+        print(
+            "=" * 70
+        )
+
         return
 
     for f in formats:
@@ -254,7 +273,9 @@ def print_formats(info):
             f"protocol={f.get('protocol')}"
         )
 
-    print("=" * 70)
+    print(
+        "=" * 70
+    )
 
 
 # ============================================================
@@ -265,7 +286,7 @@ def format_score(fmt):
 
     score = 0
 
-    # MP4 اولویت دارد
+    # MP4
     if fmt.get("ext") == "mp4":
         score += 100
 
@@ -287,19 +308,26 @@ def format_score(fmt):
     fps = fmt.get("fps")
 
     if fps:
+
         try:
+
             score += min(
                 int(float(fps)),
                 60
             )
+
         except Exception:
             pass
 
     # Bitrate
     try:
+
         score += int(
-            float(fmt.get("tbr") or 0)
+            float(
+                fmt.get("tbr") or 0
+            )
         )
+
     except Exception:
         pass
 
@@ -319,44 +347,68 @@ def extract_qualities(info):
         []
     ):
 
-        height = fmt.get("height")
+        height = fmt.get(
+            "height"
+        )
 
-        width = fmt.get("width")
+        ext = fmt.get(
+            "ext"
+        )
 
-        ext = fmt.get("ext")
+        vcodec = fmt.get(
+            "vcodec"
+        )
 
-        vcodec = fmt.get("vcodec")
-
-        # بدون height
         if not height:
             continue
 
-        # تبدیل امن
         try:
-            height = int(height)
+
+            height = int(
+                height
+            )
+
         except Exception:
+
             continue
 
-        # کیفیت‌های خیلی پایین
+        # Ignore tiny formats
         if height < 144:
             continue
 
-        # فقط audio
-        if not vcodec or vcodec == "none":
+        # Ignore audio-only
+        if (
+            not vcodec
+            or
+            vcodec == "none"
+        ):
             continue
 
-        # thumbnail / storyboard
+        # Ignore thumbnails/storyboards
         if ext == "mhtml":
             continue
 
-        current = qualities.get(height)
+        current = qualities.get(
+            height
+        )
 
         if current is None:
-            qualities[height] = fmt
+
+            qualities[
+                height
+            ] = fmt
+
             continue
 
-        if format_score(fmt) > format_score(current):
-            qualities[height] = fmt
+        if (
+            format_score(fmt)
+            >
+            format_score(current)
+        ):
+
+            qualities[
+                height
+            ] = fmt
 
     return dict(
         sorted(
@@ -374,11 +426,15 @@ def extract_qualities(info):
 def get_video_data(url):
 
     print()
-    print("🔎 Extracting video information...")
+    print(
+        "🔎 Extracting video information..."
+    )
 
     ydl_opts = get_ydl_opts()
 
-    ydl_opts["skip_download"] = True
+    ydl_opts[
+        "skip_download"
+    ] = True
 
     with yt_dlp.YoutubeDL(
         ydl_opts
@@ -390,17 +446,21 @@ def get_video_data(url):
         )
 
     if not info:
+
         raise RuntimeError(
             "❌ اطلاعات ویدیو دریافت نشد."
         )
 
-    print_formats(info)
+    print_formats(
+        info
+    )
 
     # ========================================================
-    # Video Information
+    # Video information
     # ========================================================
 
     video_info = {
+
         "title": (
             info.get("title")
             or "نامشخص"
@@ -444,10 +504,12 @@ def get_video_data(url):
     }
 
     # ========================================================
-    # Extract Qualities
+    # Qualities
     # ========================================================
 
-    qualities = extract_qualities(info)
+    qualities = extract_qualities(
+        info
+    )
 
     available_qualities = [
         str(height)
@@ -471,15 +533,340 @@ def get_video_data(url):
 # Build Format Selector
 # ============================================================
 
-def build_format_selector(quality):
+def build_format_selector(
+    quality
+):
 
-    quality = int(quality)
+    quality = int(
+        quality
+    )
 
-    # اولویت:
+    # First choice:
+    # separate video + audio
     #
-    # 1. بهترین video تا کیفیت انتخابی
-    # 2. بهترین audio
-    # 3. fallback به format دارای video+audio
-    #
-    # این باعث می‌شود اگر مثلاً 720p جداگانه
-    # موجود باشد، فقط به
+    # Fallback:
+    # combined format containing
+    # video + audio
+
+    selector = (
+        f"bestvideo[height<={quality}]"
+        f"+bestaudio/"
+        f"best[height<={quality}]"
+    )
+
+    return selector
+
+
+# ============================================================
+# Find Downloaded File
+# ============================================================
+
+def find_downloaded_file(
+    output_dir,
+    video_id
+):
+
+    output_dir = Path(
+        output_dir
+    )
+
+    if not output_dir.exists():
+        return None
+
+    candidates = []
+
+    for path in output_dir.glob(
+        f"{video_id}.*"
+    ):
+
+        if not path.is_file():
+            continue
+
+        # Ignore temporary files
+        if path.name.endswith(
+            ".part"
+        ):
+            continue
+
+        if path.name.endswith(
+            ".ytdl"
+        ):
+            continue
+
+        candidates.append(
+            path
+        )
+
+    if not candidates:
+        return None
+
+    # Prefer MP4
+    mp4_files = [
+        p
+        for p in candidates
+        if p.suffix.lower()
+        == ".mp4"
+    ]
+
+    if mp4_files:
+
+        return max(
+            mp4_files,
+            key=lambda p: p.stat().st_mtime
+        )
+
+    return max(
+        candidates,
+        key=lambda p: p.stat().st_mtime
+    )
+
+
+# ============================================================
+# Download Video
+# ============================================================
+
+def download_video(
+    url,
+    quality
+):
+
+    quality = int(
+        quality
+    )
+
+    print()
+    print("=" * 70)
+
+    print(
+        f"🎯 Requested quality: "
+        f"{quality}p"
+    )
+
+    print("=" * 70)
+
+    # ========================================================
+    # Output directory
+    # ========================================================
+
+    DOWNLOAD_DIR.mkdir(
+        parents=True,
+        exist_ok=True
+    )
+
+    output_template = str(
+        DOWNLOAD_DIR
+        /
+        "%(id)s.%(ext)s"
+    )
+
+    # ========================================================
+    # yt-dlp options
+    # ========================================================
+
+    ydl_opts = get_ydl_opts()
+
+    format_selector = (
+        build_format_selector(
+            quality
+        )
+    )
+
+    print(
+        "🎯 Format selector:",
+        format_selector
+    )
+
+    ydl_opts.update({
+
+        "format": format_selector,
+
+        "outtmpl": output_template,
+
+        "merge_output_format": "mp4",
+
+        "postprocessors": [
+            {
+                "key": "FFmpegVideoRemuxer",
+                "preferedformat": "mp4"
+            }
+        ],
+
+        "noplaylist": True,
+
+        "overwrites": True,
+
+        "continuedl": True
+    })
+
+    # ========================================================
+    # Download
+    # ========================================================
+
+    print()
+    print(
+        f"⬇️ Downloading {quality}p..."
+    )
+
+    with yt_dlp.YoutubeDL(
+        ydl_opts
+    ) as ydl:
+
+        info = ydl.extract_info(
+            url,
+            download=True
+        )
+
+        if not info:
+
+            raise RuntimeError(
+                "❌ yt-dlp اطلاعات دانلود را برنگرداند."
+            )
+
+        video_id = (
+            info.get("id")
+            or ""
+        )
+
+        # ====================================================
+        # Find actual output
+        # ====================================================
+
+        downloaded_file = (
+            find_downloaded_file(
+                DOWNLOAD_DIR,
+                video_id
+            )
+        )
+
+        # ====================================================
+        # Fallback to prepare_filename
+        # ====================================================
+
+        if (
+            downloaded_file
+            is None
+        ):
+
+            try:
+
+                prepared = Path(
+                    ydl.prepare_filename(
+                        info
+                    )
+                )
+
+                if prepared.exists():
+                    downloaded_file = prepared
+
+                else:
+
+                    mp4_path = (
+                        prepared.with_suffix(
+                            ".mp4"
+                        )
+                    )
+
+                    if mp4_path.exists():
+                        downloaded_file = mp4_path
+
+            except Exception as e:
+
+                print(
+                    "⚠️ prepare_filename error:",
+                    repr(e)
+                )
+
+        # ====================================================
+        # Final validation
+        # ====================================================
+
+        if (
+            downloaded_file
+            is None
+        ):
+
+            raise FileNotFoundError(
+                "❌ فایل ویدیو بعد از دانلود پیدا نشد."
+            )
+
+        downloaded_file = Path(
+            downloaded_file
+        )
+
+        if not downloaded_file.exists():
+
+            raise FileNotFoundError(
+                f"❌ فایل پیدا نشد: "
+                f"{downloaded_file}"
+            )
+
+        file_size = (
+            downloaded_file.stat().st_size
+        )
+
+        if file_size <= 0:
+
+            raise RuntimeError(
+                "❌ فایل دانلود شده خالی است."
+            )
+
+        print()
+        print(
+            f"✅ Download completed:"
+            f" {downloaded_file}"
+        )
+
+        print(
+            f"📦 File size:"
+            f" {file_size / (1024 * 1024):.2f} MB"
+        )
+
+        return str(
+            downloaded_file
+        )
+
+
+# ============================================================
+# Module Test
+# ============================================================
+
+if __name__ == "__main__":
+
+    print()
+    print("=" * 70)
+    print(
+        "DOWNLOADER MODULE TEST"
+    )
+    print("=" * 70)
+
+    print(
+        "get_video_data:",
+        callable(get_video_data)
+    )
+
+    print(
+        "download_video:",
+        callable(download_video)
+    )
+
+    print(
+        "build_format_selector:",
+        callable(build_format_selector)
+    )
+
+    print(
+        "POT_PROVIDER_URL:",
+        POT_PROVIDER_URL
+        or "(not configured)"
+    )
+
+    print(
+        "COOKIE_FILE:",
+        COOKIE_FILE
+        or "(not configured)"
+    )
+
+    print(
+        "=" * 70
+    )
+
