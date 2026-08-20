@@ -5,9 +5,9 @@ import tempfile
 import yt_dlp
 
 
-# =========================
+# =========================================================
 # YouTube Cookies
-# =========================
+# =========================================================
 
 def create_cookie_file():
 
@@ -71,9 +71,9 @@ def create_cookie_file():
 COOKIE_FILE = create_cookie_file()
 
 
-# =========================
-# yt-dlp Options
-# =========================
+# =========================================================
+# Common yt-dlp Options
+# =========================================================
 
 def get_ydl_opts():
 
@@ -89,6 +89,7 @@ def get_ydl_opts():
 
         "retries": 3,
 
+        # اجازه استفاده از clientهای مختلف
         "extractor_args": {
 
             "youtube": {
@@ -112,9 +113,9 @@ def get_ydl_opts():
     return opts
 
 
-# =========================
+# =========================================================
 # Get Video Information
-# =========================
+# =========================================================
 
 def get_video_data(url):
 
@@ -124,10 +125,18 @@ def get_video_data(url):
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
 
+        print(
+            "🔎 Extracting video information..."
+        )
+
         info = ydl.extract_info(
             url,
             download=False
         )
+
+        # =================================================
+        # Basic Information
+        # =================================================
 
         video_info = {
 
@@ -150,59 +159,120 @@ def get_video_data(url):
 
             "duration":
                 info.get("duration")
-                or 0,
+                or 0
 
         }
 
-        # =========================
-        # Find Available Qualities
-        # =========================
+        # =================================================
+        # DEBUG: ALL AVAILABLE FORMATS
+        # =================================================
+
+        print(
+            "\n"
+            "==================================================\n"
+            "AVAILABLE YOUTUBE FORMATS\n"
+            "=================================================="
+        )
+
+        formats = info.get("formats", [])
+
+        for f in formats:
+
+            print(
+
+                "format_id=",
+                f.get("format_id"),
+
+                "| height=",
+                f.get("height"),
+
+                "| width=",
+                f.get("width"),
+
+                "| ext=",
+                f.get("ext"),
+
+                "| vcodec=",
+                f.get("vcodec"),
+
+                "| acodec=",
+                f.get("acodec"),
+
+                "| fps=",
+                f.get("fps"),
+
+                "| filesize=",
+                f.get("filesize"),
+
+                "| protocol=",
+                f.get("protocol")
+
+            )
+
+        print(
+            "==================================================\n"
+        )
+
+        # =================================================
+        # Extract Available Video Qualities
+        # =================================================
 
         available_heights = set()
 
-        for f in info.get("formats", []):
+        for f in formats:
 
             height = f.get("height")
 
-            video_codec = f.get("vcodec")
+            vcodec = f.get("vcodec")
 
+            # فرمت باید ویدیو داشته باشد
             if not height:
                 continue
 
-            # فقط فرمت‌هایی که واقعاً ویدیو دارند
-            if not video_codec:
+            if not vcodec:
                 continue
 
-            if video_codec == "none":
+            if vcodec == "none":
+                continue
+
+            try:
+
+                height = int(height)
+
+            except:
+
                 continue
 
             available_heights.add(
-                int(height)
+                height
             )
 
-        # کیفیت‌های رایج
+        # =================================================
+        # Sort Qualities
+        # =================================================
+
         qualities = sorted(
             available_heights,
             reverse=True
         )
 
-        # تبدیل به لیست رشته‌ای برای bot.py
+        # تبدیل به string
         qualities = [
             str(q)
             for q in qualities
         ]
 
         print(
-            "🎥 Available qualities:",
+            "🎥 AVAILABLE QUALITIES:",
             qualities
         )
 
         return video_info, qualities
 
 
-# =========================
+# =========================================================
 # Download Video
-# =========================
+# =========================================================
 
 def download_video(url, quality):
 
@@ -220,23 +290,41 @@ def download_video(url, quality):
 
     ydl_opts = get_ydl_opts()
 
+    # =====================================================
+    # Format Selection
+    # =====================================================
+
+    format_selector = (
+        f"bestvideo[height<={quality}]"
+        f"+bestaudio/"
+        f"best[height<={quality}]"
+    )
+
+    print(
+        "\n"
+        "=================================================="
+    )
+
+    print(
+        f"🎯 Requested quality: {quality}p"
+    )
+
+    print(
+        f"🎯 Format selector: {format_selector}"
+    )
+
+    print(
+        "==================================================\n"
+    )
+
     ydl_opts.update({
 
-        # =========================
-        # Video + Audio
-        # =========================
-
-        "format": (
-            f"bestvideo[height<={quality}]"
-            f"+bestaudio/"
-            f"best[height<={quality}]"
-        ),
+        "format": format_selector,
 
         "outtmpl": output_template,
 
         "merge_output_format": "mp4",
 
-        # فایل‌های موقت
         "paths": {
 
             "home": output_dir,
@@ -245,30 +333,28 @@ def download_video(url, quality):
 
         },
 
-        # اگر یک فرمت پیدا نشد،
-        # yt-dlp سراغ انتخاب بعدی برود
-        "format_sort": [
-            "res",
-            "fps",
-            "codec:av01",
-            "codec:vp9",
-            "codec:h264"
-        ],
-
         "noplaylist": True
 
     })
 
-    print(
-        f"⬇️ Starting download: {quality}p"
-    )
+    # =====================================================
+    # Download
+    # =====================================================
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+
+        print(
+            f"⬇️ Downloading {quality}p..."
+        )
 
         info = ydl.extract_info(
             url,
             download=True
         )
+
+        # =================================================
+        # Find Output File
+        # =================================================
 
         filename = ydl.prepare_filename(
             info
@@ -280,57 +366,55 @@ def download_video(url, quality):
 
         mp4_file = base + ".mp4"
 
-        # =========================
-        # Check MP4
-        # =========================
-
         if os.path.exists(mp4_file):
 
             print(
-                f"✅ Download complete: "
-                f"{mp4_file}"
+                f"✅ MP4 found: {mp4_file}"
             )
 
             return mp4_file
 
-        # =========================
-        # Check original extension
-        # =========================
-
         if os.path.exists(filename):
 
             print(
-                f"✅ Download complete: "
-                f"{filename}"
+                f"✅ File found: {filename}"
             )
 
             return filename
 
-        # =========================
-        # Search for generated MP4
-        # =========================
+        # =================================================
+        # Search Directory
+        # =================================================
 
         video_id = info.get("id")
 
         if video_id:
 
-            possible_file = os.path.join(
-                output_dir,
-                f"{video_id}.mp4"
-            )
-
-            if os.path.exists(
-                possible_file
+            for name in os.listdir(
+                output_dir
             ):
 
-                print(
-                    f"✅ Download complete: "
-                    f"{possible_file}"
-                )
+                if name.startswith(
+                    video_id
+                ):
 
-                return possible_file
+                    possible_file = os.path.join(
+                        output_dir,
+                        name
+                    )
+
+                    if os.path.isfile(
+                        possible_file
+                    ):
+
+                        print(
+                            f"✅ Found downloaded file: "
+                            f"{possible_file}"
+                        )
+
+                        return possible_file
 
         raise FileNotFoundError(
-            "فایل ویدیو بعد از دانلود پیدا نشد."
+            "❌ فایل ویدیو بعد از دانلود پیدا نشد."
         )
 
