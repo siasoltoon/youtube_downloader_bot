@@ -1,3 +1,4 @@
+
 import os
 import base64
 import tempfile
@@ -66,18 +67,59 @@ COOKIE_FILE = create_cookie_file()
 # PO Token Provider
 # ============================================================
 
-# Railway private URL of the bgutil provider.
-#
-# Example:
-# http://bgutil-provider.railway.internal:4416
-#
-# We read it from an environment variable so the URL does
-# not need to be hard-coded.
-
 POT_PROVIDER_URL = os.getenv(
-    "YOUTUBE_POT_PROVIDER_URL",
-    "http://127.0.0.1:4416"
+    "YOUTUBE_POT_PROVIDER_URL"
 )
+
+
+def configure_pot_provider(opts):
+    """
+    تنظیم bgutil-ytdlp-pot-provider
+    از طریق Variable در Railway.
+    """
+
+    if not POT_PROVIDER_URL:
+        print()
+        print("=" * 70)
+        print("⚠️ PO TOKEN PROVIDER")
+        print("=" * 70)
+        print("YOUTUBE_POT_PROVIDER_URL تنظیم نشده است.")
+        print("=" * 70)
+        return
+
+    provider_url = POT_PROVIDER_URL.strip().rstrip("/")
+
+    # جلوگیری از اشتباه رایج
+    if "127.0.0.1" in provider_url:
+        print()
+        print("=" * 70)
+        print("⚠️ WARNING: PO provider روی 127.0.0.1 تنظیم شده!")
+        print("=" * 70)
+        print(
+            "YOUTUBE_POT_PROVIDER_URL باید Private Domain "
+            "سرویس bgutil باشد."
+        )
+        print("=" * 70)
+
+    print()
+    print("=" * 70)
+    print("🔐 PO TOKEN PROVIDER")
+    print("=" * 70)
+    print(f"Provider URL: {provider_url}")
+    print("Provider mode: automatic")
+    print("=" * 70)
+
+    youtube_args = opts.setdefault(
+        "extractor_args",
+        {}
+    ).setdefault(
+        "youtube",
+        {}
+    )
+
+    youtube_args["pot_provider"] = [
+        f"bgutil:{provider_url}"
+    ]
 
 
 # ============================================================
@@ -98,12 +140,12 @@ def get_ydl_opts():
 
         "retries": 3,
 
-        "fragment_retries": 3,
+        "fragment_retries": 5,
 
         "concurrent_fragment_downloads": 4,
 
         # ----------------------------------------------------
-        # Deno / JavaScript runtime
+        # JavaScript runtime
         # ----------------------------------------------------
 
         "js_runtimes": {
@@ -111,12 +153,19 @@ def get_ydl_opts():
         },
 
         # ----------------------------------------------------
-        # YouTube
+        # EJS remote components
         #
-        # mweb is intentionally enabled because the current
-        # yt-dlp PO Token recommendation uses mweb + GVS PO.
-        #
-        # The bgutil plugin automatically obtains the PO Token.
+        # برای حل challengeهای جدید YouTube
+        # ----------------------------------------------------
+
+        "remote_components": {
+            "ejs": [
+                "github"
+            ]
+        },
+
+        # ----------------------------------------------------
+        # YouTube clients
         # ----------------------------------------------------
 
         "extractor_args": {
@@ -124,18 +173,9 @@ def get_ydl_opts():
             "youtube": {
 
                 "player_client": [
-                    "mweb",
-                    "web"
-                ],
-
-                # ------------------------------------------------
-                # Tell bgutil-ytdlp-pot-provider where its HTTP
-                # server is running.
-                # ------------------------------------------------
-
-                "youtubepot-bgutilhttp": {
-                    "base_url": POT_PROVIDER_URL
-                }
+                    "web",
+                    "mweb"
+                ]
             }
         }
     }
@@ -149,20 +189,10 @@ def get_ydl_opts():
         opts["cookiefile"] = COOKIE_FILE
 
     # ========================================================
-    # Debug information
+    # PO Token Provider
     # ========================================================
 
-    print()
-    print("=" * 70)
-    print("🔐 PO TOKEN PROVIDER")
-    print("=" * 70)
-    print(
-        f"Provider URL: {POT_PROVIDER_URL}"
-    )
-    print(
-        "Provider mode: automatic"
-    )
-    print("=" * 70)
+    configure_pot_provider(opts)
 
     return opts
 
@@ -178,10 +208,7 @@ def print_formats(info):
     print("AVAILABLE YOUTUBE FORMATS")
     print("=" * 70)
 
-    formats = info.get(
-        "formats",
-        []
-    )
+    formats = info.get("formats", [])
 
     for f in formats:
 
@@ -231,9 +258,7 @@ def get_video_data(url):
 
     ydl_opts["skip_download"] = True
 
-    with yt_dlp.YoutubeDL(
-        ydl_opts
-    ) as ydl:
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
 
         info = ydl.extract_info(
             url,
@@ -243,7 +268,7 @@ def get_video_data(url):
     print_formats(info)
 
     # ========================================================
-    # Video Information
+    # Video information
     # ========================================================
 
     video_info = {
@@ -276,15 +301,12 @@ def get_video_data(url):
     }
 
     # ========================================================
-    # Find Real Video Qualities
+    # Find available real video qualities
     # ========================================================
 
     qualities = {}
 
-    for f in info.get(
-        "formats",
-        []
-    ):
+    for f in info.get("formats", []):
 
         height = f.get("height")
 
@@ -297,67 +319,67 @@ def get_video_data(url):
         if not height:
             continue
 
+        try:
+            height = int(height)
+        except (TypeError, ValueError):
+            continue
+
+        # فقط Video
         if not vcodec or vcodec == "none":
             continue
 
+        # Thumbnail / storyboard
         if ext == "mhtml":
             continue
 
-        height = int(height)
-
+        # کیفیت‌های خیلی پایین
         if height < 144:
             continue
 
-        current = qualities.get(
-            height
-        )
+        current = qualities.get(height)
 
         if current is None:
-
             qualities[height] = f
-
             continue
 
         # ----------------------------------------------------
-        # Score formats
+        # Score
         # ----------------------------------------------------
 
         def score(fmt):
 
             score_value = 0
 
-            # MP4 preferred
+            # MP4 اولویت دارد
             if fmt.get("ext") == "mp4":
                 score_value += 100
 
-            # Has audio
+            # دارای صدا
             if fmt.get("acodec") not in (
                 None,
                 "none"
             ):
                 score_value += 50
 
-            # Has video
+            # دارای تصویر
             if fmt.get("vcodec") not in (
                 None,
                 "none"
             ):
                 score_value += 50
 
-            # Prefer higher bitrate
+            # bitrate
             score_value += int(
-                fmt.get("tbr")
-                or 0
+                fmt.get("tbr") or 0
             )
 
             return score_value
 
         if score(f) > score(current):
-
             qualities[height] = f
 
     # ========================================================
-    # Sort Qualities
+    # Sort qualities
     # ========================================================
 
     qualities = dict(
@@ -380,38 +402,25 @@ def get_video_data(url):
     )
     print()
 
-    return (
-        video_info,
-        available_qualities
-    )
+    return video_info, available_qualities
 
 
 # ============================================================
 # Download Video
 # ============================================================
 
-def download_video(
-    url,
-    quality
-):
+def download_video(url, quality):
 
-    quality = int(
-        quality
-    )
+    quality = int(quality)
 
     print()
     print("=" * 70)
-
     print(
-        f"🎯 Requested quality: "
-        f"{quality}p"
+        f"🎯 Requested quality: {quality}p"
     )
-
     print("=" * 70)
 
-    output_dir = (
-        "/tmp/youtube_downloads"
-    )
+    output_dir = "/tmp/youtube_downloads"
 
     os.makedirs(
         output_dir,
@@ -426,7 +435,7 @@ def download_video(
     ydl_opts = get_ydl_opts()
 
     # ========================================================
-    # Format Selector
+    # Format selector
     # ========================================================
 
     format_selector = (
@@ -466,53 +475,43 @@ def download_video(
         f"⬇️ Downloading {quality}p..."
     )
 
-    with yt_dlp.YoutubeDL(
-        ydl_opts
-    ) as ydl:
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
 
         info = ydl.extract_info(
             url,
             download=True
         )
 
-        filename = ydl.prepare_filename(
-            info
-        )
+        filename = ydl.prepare_filename(info)
 
-        base, ext = os.path.splitext(
+        base, _ = os.path.splitext(
             filename
         )
 
-        mp4_file = (
-            base + ".mp4"
-        )
+        mp4_file = base + ".mp4"
 
-        # ====================================================
+        # ----------------------------------------------------
         # MP4
-        # ====================================================
+        # ----------------------------------------------------
 
-        if os.path.exists(
-            mp4_file
-        ):
+        if os.path.exists(mp4_file):
 
             print(
-                "✅ Download completed:",
-                mp4_file
+                f"✅ Download completed: "
+                f"{mp4_file}"
             )
 
             return mp4_file
 
-        # ====================================================
-        # Original format
-        # ====================================================
+        # ----------------------------------------------------
+        # Original file
+        # ----------------------------------------------------
 
-        if os.path.exists(
-            filename
-        ):
+        if os.path.exists(filename):
 
             print(
-                "✅ Download completed:",
-                filename
+                f"✅ Download completed: "
+                f"{filename}"
             )
 
             return filename
@@ -520,3 +519,4 @@ def download_video(
     raise FileNotFoundError(
         "❌ فایل ویدیو بعد از دانلود پیدا نشد."
     )
+
