@@ -6,6 +6,16 @@ import yt_dlp
 
 
 # ============================================================
+# Configuration
+# ============================================================
+
+POT_PROVIDER_URL = os.getenv(
+    "YOUTUBE_POT_PROVIDER_URL",
+    ""
+).strip().rstrip("/")
+
+
+# ============================================================
 # YouTube Cookies
 # ============================================================
 
@@ -67,15 +77,14 @@ COOKIE_FILE = create_cookie_file()
 # PO Token Provider
 # ============================================================
 
-POT_PROVIDER_URL = os.getenv(
-    "YOUTUBE_POT_PROVIDER_URL"
-)
-
-
 def configure_pot_provider(opts):
     """
-    تنظیم bgutil-ytdlp-pot-provider
-    از طریق Variable در Railway.
+    اتصال yt-dlp به bgutil-ytdlp-pot-provider
+
+    نکته مهم:
+    base_url باید به extractor مربوط به bgutil
+    داده شود؛ صرفاً گذاشتن URL در یک env variable
+    برای yt-dlp کافی نیست.
     """
 
     if not POT_PROVIDER_URL:
@@ -84,42 +93,48 @@ def configure_pot_provider(opts):
         print("⚠️ PO TOKEN PROVIDER")
         print("=" * 70)
         print("YOUTUBE_POT_PROVIDER_URL تنظیم نشده است.")
+        print("yt-dlp از provider پیش‌فرض استفاده خواهد کرد.")
         print("=" * 70)
-        return
-
-    provider_url = POT_PROVIDER_URL.strip().rstrip("/")
-
-    # جلوگیری از اشتباه رایج
-    if "127.0.0.1" in provider_url:
         print()
-        print("=" * 70)
-        print("⚠️ WARNING: PO provider روی 127.0.0.1 تنظیم شده!")
-        print("=" * 70)
-        print(
-            "YOUTUBE_POT_PROVIDER_URL باید Private Domain "
-            "سرویس bgutil باشد."
-        )
-        print("=" * 70)
+
+        return
 
     print()
     print("=" * 70)
     print("🔐 PO TOKEN PROVIDER")
     print("=" * 70)
-    print(f"Provider URL: {provider_url}")
+    print(
+        f"Provider URL: {POT_PROVIDER_URL}"
+    )
     print("Provider mode: automatic")
     print("=" * 70)
 
-    youtube_args = opts.setdefault(
+    extractor_args = opts.setdefault(
         "extractor_args",
         {}
-    ).setdefault(
+    )
+
+    # --------------------------------------------------------
+    # YouTube
+    # --------------------------------------------------------
+
+    youtube_args = extractor_args.setdefault(
         "youtube",
         {}
     )
 
-    youtube_args["pot_provider"] = [
-        f"bgutil:{provider_url}"
-    ]
+    # --------------------------------------------------------
+    # bgutil HTTP provider
+    #
+    # این بخش مهم‌ترین قسمت است.
+    # --------------------------------------------------------
+
+    bgutil_args = extractor_args.setdefault(
+        "youtubepot-bgutilhttp",
+        {}
+    )
+
+    bgutil_args["base_url"] = POT_PROVIDER_URL
 
 
 # ============================================================
@@ -138,9 +153,11 @@ def get_ydl_opts():
 
         "socket_timeout": 30,
 
-        "retries": 3,
+        "retries": 5,
 
         "fragment_retries": 5,
+
+        "file_access_retries": 3,
 
         "concurrent_fragment_downloads": 4,
 
@@ -153,19 +170,22 @@ def get_ydl_opts():
         },
 
         # ----------------------------------------------------
-        # EJS remote components
+        # Remote EJS components
         #
-        # برای حل challengeهای جدید YouTube
+        # برای حل n challenge
         # ----------------------------------------------------
 
-        "remote_components": {
-            "ejs": [
-                "github"
-            ]
-        },
+        "remote_components": [
+            "ejs:github"
+        ],
 
         # ----------------------------------------------------
-        # YouTube clients
+        # YouTube client
+        #
+        # فعلاً web را client اصلی قرار می‌دهیم.
+        #
+        # اجبار mweb در شرایط فعلی تو باعث می‌شد
+        # فرمت‌های ویدیو حذف شوند.
         # ----------------------------------------------------
 
         "extractor_args": {
@@ -173,8 +193,7 @@ def get_ydl_opts():
             "youtube": {
 
                 "player_client": [
-                    "web",
-                    "mweb"
+                    "web"
                 ]
             }
         }
@@ -198,7 +217,7 @@ def get_ydl_opts():
 
 
 # ============================================================
-# Print Available Formats
+# Print Formats
 # ============================================================
 
 def print_formats(info):
@@ -210,36 +229,23 @@ def print_formats(info):
 
     formats = info.get("formats", [])
 
+    if not formats:
+        print("❌ No formats returned.")
+        print("=" * 70)
+        return
+
     for f in formats:
 
-        format_id = f.get("format_id")
-
-        height = f.get("height")
-
-        width = f.get("width")
-
-        ext = f.get("ext")
-
-        vcodec = f.get("vcodec")
-
-        acodec = f.get("acodec")
-
-        fps = f.get("fps")
-
-        filesize = f.get("filesize")
-
-        protocol = f.get("protocol")
-
         print(
-            f"format_id={format_id} | "
-            f"height={height} | "
-            f"width={width} | "
-            f"ext={ext} | "
-            f"vcodec={vcodec} | "
-            f"acodec={acodec} | "
-            f"fps={fps} | "
-            f"filesize={filesize} | "
-            f"protocol={protocol}"
+            f"format_id={f.get('format_id')} | "
+            f"height={f.get('height')} | "
+            f"width={f.get('width')} | "
+            f"ext={f.get('ext')} | "
+            f"vcodec={f.get('vcodec')} | "
+            f"acodec={f.get('acodec')} | "
+            f"fps={f.get('fps')} | "
+            f"filesize={f.get('filesize')} | "
+            f"protocol={f.get('protocol')}"
         )
 
     print("=" * 70)
@@ -301,7 +307,7 @@ def get_video_data(url):
     }
 
     # ========================================================
-    # Find available real video qualities
+    # Find available video qualities
     # ========================================================
 
     qualities = {}
@@ -309,12 +315,6 @@ def get_video_data(url):
     for f in info.get("formats", []):
 
         height = f.get("height")
-
-        ext = f.get("ext")
-
-        vcodec = f.get("vcodec")
-
-        acodec = f.get("acodec")
 
         if not height:
             continue
@@ -324,75 +324,82 @@ def get_video_data(url):
         except (TypeError, ValueError):
             continue
 
-        # فقط Video
+        # ----------------------------------------------------
+        # Ignore extremely low formats
+        # ----------------------------------------------------
+
+        if height < 144:
+            continue
+
+        # ----------------------------------------------------
+        # Ignore audio-only
+        # ----------------------------------------------------
+
+        vcodec = f.get("vcodec")
+
         if not vcodec or vcodec == "none":
             continue
 
-        # Thumbnail / storyboard
-        if ext == "mhtml":
+        # ----------------------------------------------------
+        # Ignore thumbnails / mhtml
+        # ----------------------------------------------------
+
+        if f.get("ext") == "mhtml":
             continue
 
-        # کیفیت‌های خیلی پایین
-        if height < 144:
-            continue
+        # ----------------------------------------------------
+        # Score format
+        # ----------------------------------------------------
+
+        score = 0
+
+        if f.get("ext") == "mp4":
+            score += 100
+
+        if f.get("acodec") not in (
+            None,
+            "none"
+        ):
+            score += 50
+
+        if f.get("vcodec") not in (
+            None,
+            "none"
+        ):
+            score += 50
+
+        score += int(
+            f.get("tbr") or 0
+        )
 
         current = qualities.get(height)
 
         if current is None:
-            qualities[height] = f
-            continue
 
-        # ----------------------------------------------------
-        # Score
-        # ----------------------------------------------------
+            qualities[height] = {
+                "format": f,
+                "score": score
+            }
 
-        def score(fmt):
+        elif score > current["score"]:
 
-            score_value = 0
-
-            # MP4 اولویت دارد
-            if fmt.get("ext") == "mp4":
-                score_value += 100
-
-            # دارای صدا
-            if fmt.get("acodec") not in (
-                None,
-                "none"
-            ):
-                score_value += 50
-
-            # دارای تصویر
-            if fmt.get("vcodec") not in (
-                None,
-                "none"
-            ):
-                score_value += 50
-
-            # bitrate
-            score_value += int(
-                fmt.get("tbr") or 0
-            )
-
-            return score_value
-
-        if score(f) > score(current):
-            qualities[height] = f
+            qualities[height] = {
+                "format": f,
+                "score": score
+            }
 
     # ========================================================
-    # Sort qualities
+    # Sort
     # ========================================================
 
-    qualities = dict(
-        sorted(
-            qualities.items(),
-            key=lambda item: item[0],
-            reverse=True
-        )
+    sorted_heights = sorted(
+        qualities.keys(),
+        reverse=True
     )
 
     available_qualities = [
         str(height)
-        for height in qualities.keys()
+        for height in sorted_heights
     ]
 
     print()
@@ -435,7 +442,13 @@ def download_video(url, quality):
     ydl_opts = get_ydl_opts()
 
     # ========================================================
-    # Format selector
+    # Format selection
+    #
+    # اول:
+    # بهترین video + audio
+    #
+    # اگر جداگانه موجود نبود:
+    # بهترین فایل دارای video و audio
     # ========================================================
 
     format_selector = (
@@ -482,9 +495,11 @@ def download_video(url, quality):
             download=True
         )
 
-        filename = ydl.prepare_filename(info)
+        filename = ydl.prepare_filename(
+            info
+        )
 
-        base, _ = os.path.splitext(
+        base, ext = os.path.splitext(
             filename
         )
 
