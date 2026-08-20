@@ -1,5 +1,7 @@
 
 import os
+import base64
+import tempfile
 import yt_dlp
 
 
@@ -8,6 +10,44 @@ YOUTUBE_CLIENT = {
         "player_client": ["android_vr"]
     }
 }
+
+
+def create_cookie_file():
+    cookies_b64 = os.getenv("YOUTUBE_COOKIES_B64")
+
+    if not cookies_b64:
+        return None
+
+    # حذف هدر/فوتر certutil در صورت وجود
+    lines = cookies_b64.splitlines()
+
+    clean_lines = []
+
+    for line in lines:
+        if not line.startswith("-----"):
+            clean_lines.append(line.strip())
+
+    encoded = "".join(clean_lines)
+
+    try:
+        cookie_data = base64.b64decode(encoded)
+    except Exception as e:
+        raise RuntimeError(
+            f"YOUTUBE_COOKIES_B64 نامعتبر است: {e}"
+        )
+
+    cookie_file = os.path.join(
+        tempfile.gettempdir(),
+        "youtube_cookies.txt"
+    )
+
+    with open(cookie_file, "wb") as f:
+        f.write(cookie_data)
+
+    return cookie_file
+
+
+COOKIE_FILE = create_cookie_file()
 
 
 def get_video_data(url):
@@ -22,6 +62,9 @@ def get_video_data(url):
         "socket_timeout": 30,
         "retries": 3,
     }
+
+    if COOKIE_FILE:
+        ydl_opts["cookiefile"] = COOKIE_FILE
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
 
@@ -100,6 +143,9 @@ def download_video(url, quality):
 
         "merge_output_format": "mp4",
     }
+
+    if COOKIE_FILE:
+        ydl_opts["cookiefile"] = COOKIE_FILE
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
 
