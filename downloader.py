@@ -16,11 +16,22 @@ def create_cookie_file():
         return None
 
     try:
-        encoded = "".join(
-            line.strip()
-            for line in cookies_b64.splitlines()
-            if line.strip() and not line.startswith("-----")
-        )
+        lines = cookies_b64.splitlines()
+
+        clean_lines = []
+
+        for line in lines:
+            line = line.strip()
+
+            if not line:
+                continue
+
+            if line.startswith("-----"):
+                continue
+
+            clean_lines.append(line)
+
+        encoded = "".join(clean_lines)
 
         cookie_data = base64.b64decode(
             encoded,
@@ -52,13 +63,87 @@ COOKIE_FILE = create_cookie_file()
 
 
 # ============================================================
+# PO Token Configuration
+# ============================================================
+
+WEB_GVS_PO_TOKEN = os.getenv(
+    "YOUTUBE_WEB_GVS_PO_TOKEN"
+)
+
+MWEB_GVS_PO_TOKEN = os.getenv(
+    "YOUTUBE_MWEB_GVS_PO_TOKEN"
+)
+
+WEB_PLAYER_PO_TOKEN = os.getenv(
+    "YOUTUBE_WEB_PLAYER_PO_TOKEN"
+)
+
+MWEB_PLAYER_PO_TOKEN = os.getenv(
+    "YOUTUBE_MWEB_PLAYER_PO_TOKEN"
+)
+
+
+# ============================================================
+# Build PO Token Arguments
+# ============================================================
+
+def build_po_token_args():
+
+    tokens = []
+
+    # --------------------------------------------------------
+    # WEB GVS
+    # --------------------------------------------------------
+
+    if WEB_GVS_PO_TOKEN:
+
+        tokens.append(
+            f"web.gvs+{WEB_GVS_PO_TOKEN}"
+        )
+
+    # --------------------------------------------------------
+    # MWEB GVS
+    # --------------------------------------------------------
+
+    if MWEB_GVS_PO_TOKEN:
+
+        tokens.append(
+            f"mweb.gvs+{MWEB_GVS_PO_TOKEN}"
+        )
+
+    # --------------------------------------------------------
+    # WEB PLAYER
+    # --------------------------------------------------------
+
+    if WEB_PLAYER_PO_TOKEN:
+
+        tokens.append(
+            f"web.player+{WEB_PLAYER_PO_TOKEN}"
+        )
+
+    # --------------------------------------------------------
+    # MWEB PLAYER
+    # --------------------------------------------------------
+
+    if MWEB_PLAYER_PO_TOKEN:
+
+        tokens.append(
+            f"mweb.player+{MWEB_PLAYER_PO_TOKEN}"
+        )
+
+    return tokens
+
+
+# ============================================================
 # yt-dlp Options
 # ============================================================
 
 def get_ydl_opts():
 
     opts = {
+
         "quiet": False,
+
         "no_warnings": False,
 
         "noplaylist": True,
@@ -71,31 +156,80 @@ def get_ydl_opts():
 
         "concurrent_fragment_downloads": 4,
 
-        # اجازه حل JS challenge
+        # ----------------------------------------------------
+        # Deno
+        # ----------------------------------------------------
+
         "js_runtimes": {
             "deno": {}
         },
 
-        # فقط web را به عنوان client اصلی استفاده می‌کنیم.
-        # چون در Railway کلاینت‌های android/ios/tv
-        # در لاگ شما 429 یا bot detection داشتند.
+        # ----------------------------------------------------
+        # YouTube clients
+        #
+        # web:
+        # اصلی‌ترین client
+        #
+        # mweb:
+        # در صورت وجود PO Token قابل استفاده است.
+        # ----------------------------------------------------
+
         "extractor_args": {
+
             "youtube": {
+
                 "player_client": [
-                    "web"
+                    "web",
+                    "mweb"
                 ]
             }
-        },
+        }
     }
 
+    # ========================================================
+    # Cookies
+    # ========================================================
+
     if COOKIE_FILE:
+
         opts["cookiefile"] = COOKIE_FILE
+
+    # ========================================================
+    # PO Tokens
+    # ========================================================
+
+    po_tokens = build_po_token_args()
+
+    if po_tokens:
+
+        opts["extractor_args"]["youtube"]["po_token"] = (
+            ",".join(po_tokens)
+        )
+
+        print(
+            "🔐 YouTube PO Token(s) configured:"
+        )
+
+        for token in po_tokens:
+
+            # خود Token را چاپ نمی‌کنیم
+            token_type = token.split("+", 1)[0]
+
+            print(
+                f"   ✅ {token_type}"
+            )
+
+    else:
+
+        print(
+            "⚠️ No YouTube PO Token configured."
+        )
 
     return opts
 
 
 # ============================================================
-# Print Formats
+# Print Available Formats
 # ============================================================
 
 def print_formats(info):
@@ -110,15 +244,21 @@ def print_formats(info):
     for f in formats:
 
         format_id = f.get("format_id")
+
         height = f.get("height")
+
         width = f.get("width")
+
         ext = f.get("ext")
 
         vcodec = f.get("vcodec")
+
         acodec = f.get("acodec")
 
         fps = f.get("fps")
+
         filesize = f.get("filesize")
+
         protocol = f.get("protocol")
 
         print(
@@ -137,7 +277,7 @@ def print_formats(info):
 
 
 # ============================================================
-# Extract Video Information
+# Get Video Data
 # ============================================================
 
 def get_video_data(url):
@@ -158,7 +298,12 @@ def get_video_data(url):
 
     print_formats(info)
 
+    # ========================================================
+    # Video Information
+    # ========================================================
+
     video_info = {
+
         "title": (
             info.get("title")
             or "نامشخص"
@@ -183,11 +328,11 @@ def get_video_data(url):
         "duration": (
             info.get("duration")
             or 0
-        ),
+        )
     }
 
     # ========================================================
-    # Collect REAL video qualities
+    # Find Real Video Qualities
     # ========================================================
 
     qualities = {}
@@ -195,62 +340,84 @@ def get_video_data(url):
     for f in info.get("formats", []):
 
         height = f.get("height")
+
         ext = f.get("ext")
+
         vcodec = f.get("vcodec")
+
         acodec = f.get("acodec")
 
+        # بدون ارتفاع = رد
         if not height:
             continue
 
+        # Audio-only = رد
         if not vcodec or vcodec == "none":
             continue
 
-        if ext not in (
-            "mp4",
-            "webm",
-            "m4v"
-        ):
+        # Thumbnail / mhtml = رد
+        if ext == "mhtml":
             continue
 
-        # Video-only یا video+audio هر دو قابل قبول هستند.
+        # کیفیت‌های خیلی پایین = رد
+        if int(height) < 144:
+            continue
+
         height = int(height)
 
-        # کیفیت‌های خیلی پایین مثل thumbnail را حذف می‌کنیم.
-        if height < 144:
-            continue
-
-        # برای هر ارتفاع فقط بهترین format را نگه می‌داریم.
         current = qualities.get(height)
 
         if current is None:
+
             qualities[height] = f
+
             continue
 
-        # اولویت:
-        # 1. MP4
-        # 2. دارای audio
-        # 3. حجم بالاتر در صورت موجود بودن
+        # ====================================================
+        # انتخاب بهترین format برای یک resolution
+        # ====================================================
 
-        current_score = (
-            1 if current.get("ext") == "mp4" else 0,
-            1 if current.get("acodec") not in (None, "none") else 0,
-            current.get("filesize") or 0
-        )
+        def score(fmt):
 
-        new_score = (
-            1 if f.get("ext") == "mp4" else 0,
-            1 if acodec not in (None, "none") else 0,
-            f.get("filesize") or 0
-        )
+            score_value = 0
 
-        if new_score > current_score:
+            # MP4 ترجیح داده شود
+            if fmt.get("ext") == "mp4":
+                score_value += 100
+
+            # دارای audio
+            if fmt.get("acodec") not in (
+                None,
+                "none"
+            ):
+                score_value += 50
+
+            # دارای video
+            if fmt.get("vcodec") not in (
+                None,
+                "none"
+            ):
+                score_value += 50
+
+            # bitrate
+            score_value += int(
+                fmt.get("tbr") or 0
+            )
+
+            return score_value
+
+        if score(f) > score(current):
+
             qualities[height] = f
 
-    # مرتب‌سازی نزولی
+    # ========================================================
+    # Sort Qualities
+    # ========================================================
+
     qualities = dict(
         sorted(
             qualities.items(),
-            key=lambda x: x[0],
+            key=lambda item: item[0],
             reverse=True
         )
     )
@@ -261,12 +428,14 @@ def get_video_data(url):
     ]
 
     print()
+
     print(
-        f"🎥 AVAILABLE QUALITIES: "
-        f"{available_qualities}"
+        "🎥 AVAILABLE QUALITIES:",
+        available_qualities
     )
 
-    # فقط کیفیت‌هایی که واقعاً وجود دارند
+    print()
+
     return video_info, available_qualities
 
 
@@ -280,12 +449,17 @@ def download_video(url, quality):
 
     print()
     print("=" * 70)
+
     print(
-        f"🎯 Requested quality: {quality}p"
+        f"🎯 Requested quality: "
+        f"{quality}p"
     )
+
     print("=" * 70)
 
-    output_dir = "/tmp/youtube_downloads"
+    output_dir = (
+        "/tmp/youtube_downloads"
+    )
 
     os.makedirs(
         output_dir,
@@ -300,7 +474,7 @@ def download_video(url, quality):
     ydl_opts = get_ydl_opts()
 
     # ========================================================
-    # Format Selection
+    # Format Selector
     # ========================================================
 
     format_selector = (
@@ -310,8 +484,8 @@ def download_video(url, quality):
     )
 
     print(
-        f"🎯 Format selector: "
-        f"{format_selector}"
+        "🎯 Format selector:",
+        format_selector
     )
 
     ydl_opts.update({
@@ -322,15 +496,19 @@ def download_video(url, quality):
 
         "merge_output_format": "mp4",
 
-        # جلوگیری از ساخت فایل‌های اضافی در مسیرهای مختلف
         "paths": {
             "home": output_dir,
             "temp": output_dir
         },
 
-        # اگر فایل موجود بود، دوباره دانلود نکن
         "overwrites": True,
+
+        "noplaylist": True
     })
+
+    # ========================================================
+    # Download
+    # ========================================================
 
     print(
         f"⬇️ Downloading {quality}p..."
@@ -343,16 +521,20 @@ def download_video(url, quality):
             download=True
         )
 
-        filename = ydl.prepare_filename(info)
+        filename = ydl.prepare_filename(
+            info
+        )
 
         base, ext = os.path.splitext(
             filename
         )
 
-        mp4_file = base + ".mp4"
+        mp4_file = (
+            base + ".mp4"
+        )
 
         # ====================================================
-        # Check MP4
+        # MP4
         # ====================================================
 
         if os.path.exists(mp4_file):
@@ -365,7 +547,7 @@ def download_video(url, quality):
             return mp4_file
 
         # ====================================================
-        # Check original file
+        # Original format
         # ====================================================
 
         if os.path.exists(filename):
