@@ -1,5 +1,13 @@
+
 import os
 import yt_dlp
+
+
+YOUTUBE_CLIENT = {
+    "youtube": {
+        "player_client": ["android_vr"]
+    }
+}
 
 
 def get_video_data(url):
@@ -9,14 +17,14 @@ def get_video_data(url):
         "no_warnings": False,
         "noplaylist": True,
 
-        "extractor_args": {
-            "youtube": {
-                "player_client": ["android_vr"]
-            }
-        }
+        "extractor_args": YOUTUBE_CLIENT,
+
+        "socket_timeout": 30,
+        "retries": 3,
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+
         info = ydl.extract_info(
             url,
             download=False
@@ -24,7 +32,11 @@ def get_video_data(url):
 
         video_info = {
             "title": info.get("title") or "نامشخص",
-            "channel": info.get("channel") or info.get("uploader") or "نامشخص",
+            "channel": (
+                info.get("channel")
+                or info.get("uploader")
+                or "نامشخص"
+            ),
             "views": info.get("view_count") or 0,
             "likes": info.get("like_count") or 0,
             "duration": info.get("duration") or 0,
@@ -70,8 +82,13 @@ def download_video(url, quality):
 
     ydl_opts = {
         "noplaylist": True,
-        "quiet": True,
-        "no_warnings": True,
+        "quiet": False,
+        "no_warnings": False,
+
+        "extractor_args": YOUTUBE_CLIENT,
+
+        "socket_timeout": 30,
+        "retries": 3,
 
         "format": (
             f"bestvideo[height<={quality}]"
@@ -101,3 +118,4 @@ def download_video(url, quality):
             return mp4_file
 
         return filename
+
