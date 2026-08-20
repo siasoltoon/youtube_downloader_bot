@@ -7,7 +7,7 @@ import yt_dlp
 
 YOUTUBE_CLIENT = {
     "youtube": {
-        "player_client": ["android_vr"]
+        "player_client": ["web"]
     }
 }
 
