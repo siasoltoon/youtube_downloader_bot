@@ -1,107 +1,57 @@
-import subprocess
-import os
-import threading
-import uuid
 
+import os
+import subprocess
+import html
 import boto3
+
 import telebot
 from telebot import types
 
-from botocore.exceptions import ClientError
+from botocore.client import Config
 
 from downloader import (
     get_video_data,
-    download_video
+    download_video,
+    get_video_comments
 )
 
 
 # ============================================================
-# Deno Test
+# Environment
 # ============================================================
 
-try:
-    result = subprocess.run(
-        ["deno", "--version"],
-        capture_output=True,
-        text=True
-    )
+TOKEN = os.getenv(
+    "BOT_TOKEN"
+)
 
-    print("DENO TEST:")
-    print(result.stdout)
-    print(result.stderr)
+if not TOKEN:
 
-except Exception as e:
-    print("DENO TEST ERROR:", repr(e))
-
-
-# ============================================================
-# FFmpeg Test
-# ============================================================
-
-try:
-    result = subprocess.run(
-        ["ffmpeg", "-version"],
-        capture_output=True,
-        text=True
-    )
-
-    print("FFMPEG TEST:")
-
-    if result.returncode == 0:
-        first_line = result.stdout.splitlines()[0]
-        print(first_line)
-    else:
-        print(result.stderr)
-
-except Exception as e:
-    print("FFMPEG TEST ERROR:", repr(e))
-
-
-# ============================================================
-# YouTube Connection Test
-# ============================================================
-
-try:
-    result = subprocess.run(
-        [
-            "curl",
-            "-4",
-            "-I",
-            "https://www.youtube.com"
-        ],
-        capture_output=True,
-        text=True,
-        timeout=20
-    )
-
-    print("YOUTUBE CONNECTION TEST:")
-    print(result.stdout)
-    print(result.stderr)
-
-except Exception as e:
-    print("YOUTUBE TEST ERROR:", repr(e))
-
-
-# ============================================================
-# Environment Variables
-# ============================================================
-
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-
-FILONE_ACCESS_KEY = os.getenv("FILONE_ACCESS_KEY")
-FILONE_SECRET_KEY = os.getenv("FILONE_SECRET_KEY")
-FILONE_BUCKET = os.getenv("FILONE_BUCKET")
-FILONE_ENDPOINT = os.getenv("FILONE_ENDPOINT")
-
-
-# ============================================================
-# Validate Environment Variables
-# ============================================================
-
-if not BOT_TOKEN:
     raise RuntimeError(
         "BOT_TOKEN پیدا نشد!"
     )
+
+
+FILONE_ACCESS_KEY = os.getenv(
+    "FILONE_ACCESS_KEY"
+)
+
+FILONE_SECRET_KEY = os.getenv(
+    "FILONE_SECRET_KEY"
+)
+
+FILONE_BUCKET = os.getenv(
+    "FILONE_BUCKET"
+)
+
+FILONE_ENDPOINT = os.getenv(
+    "FILONE_ENDPOINT"
+)
+
+# این URL را بعداً مطابق URL عمومی bucket تنظیم کن.
+FILONE_PUBLIC_URL = os.getenv(
+    "FILONE_PUBLIC_URL",
+    ""
+).rstrip("/")
 
 
 if not FILONE_ACCESS_KEY:
@@ -109,18 +59,15 @@ if not FILONE_ACCESS_KEY:
         "FILONE_ACCESS_KEY پیدا نشد!"
     )
 
-
 if not FILONE_SECRET_KEY:
     raise RuntimeError(
         "FILONE_SECRET_KEY پیدا نشد!"
     )
 
-
 if not FILONE_BUCKET:
     raise RuntimeError(
         "FILONE_BUCKET پیدا نشد!"
     )
-
 
 if not FILONE_ENDPOINT:
     raise RuntimeError(
@@ -128,39 +75,22 @@ if not FILONE_ENDPOINT:
     )
 
 
-print()
-print("=" * 60)
-print("FIL ONE CONFIGURATION")
-print("=" * 60)
+# ============================================================
+# Telegram
+# ============================================================
 
-print(
-    "Access Key:",
-    bool(FILONE_ACCESS_KEY)
+bot = telebot.TeleBot(
+    TOKEN,
+    parse_mode="HTML"
 )
-
-print(
-    "Secret Key:",
-    bool(FILONE_SECRET_KEY)
-)
-
-print(
-    "Bucket:",
-    FILONE_BUCKET
-)
-
-print(
-    "Endpoint:",
-    FILONE_ENDPOINT
-)
-
-print("=" * 60)
 
 
 # ============================================================
-# Fil One S3 Client
+# Fil.one S3 Client
 # ============================================================
 
 s3 = boto3.client(
+
     "s3",
 
     endpoint_url=FILONE_ENDPOINT,
@@ -169,202 +99,187 @@ s3 = boto3.client(
 
     aws_secret_access_key=FILONE_SECRET_KEY,
 
+    config=Config(
+        signature_version="s3v4"
+    ),
+
     region_name="eu-west-1"
+
 )
 
 
 # ============================================================
-# Telegram Bot
-# ============================================================
-
-bot = telebot.TeleBot(
-    BOT_TOKEN,
-    parse_mode="HTML"
-)
-
-
-# ============================================================
-# User Data
+# User data
 # ============================================================
 
 user_data = {}
 
 
 # ============================================================
-# Upload File To Fil One
+# Helpers
 # ============================================================
 
-def upload_to_filo(file_path):
-    """
-    Upload local file to Fil One.
+def escape_text(text):
 
-    Returns:
-        object_key
-    """
-
-    filename = os.path.basename(file_path)
-
-    unique_id = uuid.uuid4().hex
-
-    object_key = (
-        f"telegram-videos/"
-        f"{unique_id}_"
-        f"{filename}"
+    return html.escape(
+        str(text or "")
     )
 
-    print()
-    print("=" * 60)
-    print("⬆️ UPLOADING TO FIL ONE")
-    print("=" * 60)
 
-    print(
-        "Local file:",
-        file_path
-    )
-
-    print(
-        "Bucket:",
-        FILONE_BUCKET
-    )
-
-    print(
-        "Object:",
-        object_key
-    )
+def format_number(value):
 
     try:
 
-        s3.upload_file(
-            file_path,
-            FILONE_BUCKET,
-            object_key,
+        return f"{int(value):,}"
 
-            ExtraArgs={
-                "ContentType": "video/mp4"
-            }
+    except Exception:
+
+        return str(value or 0)
+
+
+def split_text(
+    text,
+    limit=3800
+):
+
+    parts = []
+
+    while len(text) > limit:
+
+        cut = text.rfind(
+            "\n",
+            0,
+            limit
         )
 
-        print(
-            "✅ UPLOAD SUCCESS"
+        if cut <= 0:
+
+            cut = limit
+
+        parts.append(
+            text[:cut]
         )
 
-        return object_key
+        text = text[
+            cut:
+        ].lstrip()
 
-    except Exception as e:
+    if text:
 
-        print(
-            "❌ FIL ONE UPLOAD ERROR:",
-            repr(e)
+        parts.append(
+            text
         )
 
-        raise
+    return parts
 
 
 # ============================================================
-# Create Temporary Download URL
+# Upload to Fil.one
 # ============================================================
 
-def create_download_url(object_key):
-    """
-    Create a presigned URL valid for 2 hours.
-    """
-
-    expire_seconds = 2 * 60 * 60
-
-    print()
-    print(
-        "🔗 Creating presigned URL..."
-    )
-
-    url = s3.generate_presigned_url(
-        ClientMethod="get_object",
-
-        Params={
-            "Bucket": FILONE_BUCKET,
-            "Key": object_key
-        },
-
-        ExpiresIn=expire_seconds
-    )
-
-    print(
-        "✅ URL CREATED"
-    )
+def upload_to_filon(
+    file_path,
+    object_name
+):
 
     print(
-        "URL expires in:",
-        expire_seconds,
-        "seconds"
+        f"⬆️ Uploading to Fil.one: "
+        f"{file_path}"
     )
 
-    return url
-
-
-# ============================================================
-# Delete File From Fil One
-# ============================================================
-
-def delete_from_filo(object_key):
-    """
-    Delete object from Fil One.
-    """
-
-    try:
-
-        print()
-        print(
-            "🗑 Deleting object from Fil One:"
-        )
-
-        print(
-            object_key
-        )
-
-        s3.delete_object(
-            Bucket=FILONE_BUCKET,
-            Key=object_key
-        )
-
-        print(
-            "✅ FIL ONE OBJECT DELETED"
-        )
-
-    except Exception as e:
-
-        print(
-            "❌ FIL ONE DELETE ERROR:",
-            repr(e)
-        )
-
-
-# ============================================================
-# Schedule Fil One Cleanup
-# ============================================================
-
-def schedule_cleanup(object_key):
-    """
-    Delete uploaded object after 2 hours.
-
-    Important:
-    This timer works while the Railway process is running.
-    """
-
-    cleanup_seconds = 2 * 60 * 60
+    s3.upload_file(
+        file_path,
+        FILONE_BUCKET,
+        object_name,
+        ExtraArgs={
+            "ContentType": "video/mp4"
+        }
+    )
 
     print(
-        f"⏰ Cleanup scheduled in "
-        f"{cleanup_seconds} seconds"
+        "✅ UPLOAD SUCCESS"
     )
 
-    timer = threading.Timer(
-        cleanup_seconds,
-        delete_from_filo,
-        args=(object_key,)
+    print(
+        f"Bucket: {FILONE_BUCKET}"
     )
 
-    timer.daemon = True
+    print(
+        f"Object: {object_name}"
+    )
 
-    timer.start()
+    # --------------------------------------------------------
+    # Public URL
+    # --------------------------------------------------------
+
+    if FILONE_PUBLIC_URL:
+
+        return (
+            f"{FILONE_PUBLIC_URL}/"
+            f"{object_name}"
+        )
+
+    # اگر PUBLIC_URL تنظیم نشده باشد
+    # URL مستقیم S3 ساخته می‌شود.
+    return (
+        f"{FILONE_ENDPOINT}/"
+        f"{FILONE_BUCKET}/"
+        f"{object_name}"
+    )
+
+
+# ============================================================
+# Set Telegram Menu
+# ============================================================
+
+def setup_bot_commands():
+
+    commands = [
+
+        types.BotCommand(
+            "start",
+            "شروع ربات"
+        ),
+
+        types.BotCommand(
+            "help",
+            "راهنما"
+        )
+
+    ]
+
+    bot.set_my_commands(
+        commands
+    )
+
+    print(
+        "✅ Telegram menu configured."
+    )
+
+
+# ============================================================
+# Main menu
+# ============================================================
+
+def main_menu():
+
+    markup = types.InlineKeyboardMarkup()
+
+    markup.add(
+
+        types.InlineKeyboardButton(
+            "▶️ شروع",
+            callback_data="menu_start"
+        ),
+
+        types.InlineKeyboardButton(
+            "ℹ️ راهنما",
+            callback_data="menu_help"
+        )
+
+    )
+
+    return markup
 
 
 # ============================================================
@@ -377,10 +292,86 @@ def schedule_cleanup(object_key):
 def start(message):
 
     bot.send_message(
+
         message.chat.id,
 
         "سلام 👋\n\n"
-        "لینک ویدیوی YouTube رو بفرست."
+        "🎬 به ربات دانلود YouTube خوش آمدی.\n\n"
+        "برای شروع روی «▶️ شروع» بزن "
+        "یا لینک YouTube را ارسال کن.",
+
+        reply_markup=main_menu()
+
+    )
+
+
+# ============================================================
+# /help
+# ============================================================
+
+@bot.message_handler(
+    commands=["help"]
+)
+def help_command(message):
+
+    bot.send_message(
+
+        message.chat.id,
+
+        "ℹ️ <b>راهنمای ربات</b>\n\n"
+        "1️⃣ لینک YouTube را ارسال کن.\n"
+        "2️⃣ اطلاعات ویدیو نمایش داده می‌شود.\n"
+        "3️⃣ کیفیت موردنظر را انتخاب کن.\n"
+        "4️⃣ ربات ویدیو را دانلود و لینک آن را "
+        "برای تو ارسال می‌کند.\n\n"
+        "💬 همچنین می‌توانی کامنت‌های ویدیو را "
+        "مشاهده کنی."
+
+    )
+
+
+# ============================================================
+# Menu callbacks
+# ============================================================
+
+@bot.callback_query_handler(
+    func=lambda call:
+        call.data == "menu_start"
+)
+def menu_start(call):
+
+    bot.answer_callback_query(
+        call.id
+    )
+
+    bot.send_message(
+
+        call.message.chat.id,
+
+        "▶️ <b>شروع شد!</b>\n\n"
+        "لینک YouTube را ارسال کن."
+
+    )
+
+
+@bot.callback_query_handler(
+    func=lambda call:
+        call.data == "menu_help"
+)
+def menu_help(call):
+
+    bot.answer_callback_query(
+        call.id
+    )
+
+    bot.send_message(
+
+        call.message.chat.id,
+
+        "ℹ️ <b>راهنما</b>\n\n"
+        "لینک YouTube را بفرست، "
+        "سپس کیفیت ویدیو را انتخاب کن."
+
     )
 
 
@@ -396,9 +387,11 @@ def handle_url(message):
     if not message.text:
 
         bot.send_message(
+
             message.chat.id,
 
             "❌ لطفاً لینک YouTube ارسال کن."
+
         )
 
         return
@@ -413,46 +406,34 @@ def handle_url(message):
     ):
 
         bot.send_message(
+
             message.chat.id,
 
             "❌ لطفاً لینک معتبر ارسال کن."
+
         )
 
         return
 
-    status_message = bot.send_message(
+    status = bot.send_message(
 
         message.chat.id,
 
         "⏳ در حال دریافت اطلاعات ویدیو..."
+
     )
 
     try:
 
-        # ====================================================
-        # Get Video Information
-        # ====================================================
-
-        video_info, qualities = get_video_data(
-            url
+        video_info, quality_data = (
+            get_video_data(url)
         )
 
-        if not qualities:
+        if not quality_data:
 
-            bot.edit_message_text(
-
-                "❌ هیچ کیفیت قابل استفاده‌ای پیدا نشد.",
-
-                message.chat.id,
-
-                status_message.message_id
+            raise RuntimeError(
+                "هیچ کیفیتی پیدا نشد."
             )
-
-            return
-
-        # ====================================================
-        # Save User Request
-        # ====================================================
 
         user_data[
             message.from_user.id
@@ -462,35 +443,45 @@ def handle_url(message):
 
             "video_info": video_info,
 
-            "qualities": qualities
+            "quality_data": quality_data
+
         }
 
-        # ====================================================
-        # Video Information
-        # ====================================================
+        # ----------------------------------------------------
+        # Video information
+        # ----------------------------------------------------
+
+        title = escape_text(
+            video_info["title"]
+        )
+
+        channel = escape_text(
+            video_info["channel"]
+        )
 
         text = (
 
-            f"<b>{video_info['title']}</b>\n\n"
+            f"🎬 <b>{title}</b>\n\n"
 
             f"📺 کانال: "
-            f"{video_info['channel']}\n"
+            f"{channel}\n"
 
             f"👁 بازدید: "
-            f"{video_info['views']}\n"
+            f"{format_number(video_info['views'])}\n"
 
             f"👍 لایک: "
-            f"{video_info['likes']}\n"
+            f"{format_number(video_info['likes'])}\n"
 
             f"⏱ مدت: "
-            f"{video_info['duration']} ثانیه\n\n"
+            f"{video_info['duration_text']}\n\n"
 
-            f"🎥 یک کیفیت را انتخاب کن:"
+            f"🎥 <b>کیفیت را انتخاب کن:</b>"
+
         )
 
-        # ====================================================
-        # Quality Buttons
-        # ====================================================
+        # ----------------------------------------------------
+        # Keyboard
+        # ----------------------------------------------------
 
         markup = types.InlineKeyboardMarkup(
             row_width=2
@@ -498,22 +489,43 @@ def handle_url(message):
 
         buttons = []
 
-        for quality in qualities:
+        for item in quality_data:
+
+            height = item["height"]
+
+            size_text = item[
+                "size_text"
+            ]
 
             buttons.append(
 
                 types.InlineKeyboardButton(
 
-                    f"{quality}p",
+                    f"🎥 {height}p • {size_text}",
 
                     callback_data=(
-                        f"quality:{quality}"
+                        f"quality:{height}"
                     )
+
                 )
+
             )
 
         markup.add(
             *buttons
+        )
+
+        # Comments button
+        markup.add(
+
+            types.InlineKeyboardButton(
+
+                "💬 مشاهده کامنت‌ها",
+
+                callback_data="comments"
+
+            )
+
         )
 
         bot.edit_message_text(
@@ -522,19 +534,16 @@ def handle_url(message):
 
             message.chat.id,
 
-            status_message.message_id,
+            status.message_id,
 
             reply_markup=markup
+
         )
 
     except Exception as e:
 
-        print()
         print(
-            "❌ Downloader error:"
-        )
-
-        print(
+            "❌ Downloader error:",
             repr(e)
         )
 
@@ -547,7 +556,8 @@ def handle_url(message):
 
                 message.chat.id,
 
-                status_message.message_id
+                status.message_id
+
             )
 
         except Exception:
@@ -558,7 +568,177 @@ def handle_url(message):
 
                 "❌ هنگام دریافت اطلاعات ویدیو "
                 "خطایی رخ داد."
+
             )
+
+
+# ============================================================
+# Comments
+# ============================================================
+
+@bot.callback_query_handler(
+    func=lambda call:
+        call.data == "comments"
+)
+def comments_selected(call):
+
+    bot.answer_callback_query(
+        call.id,
+        "⏳ در حال دریافت کامنت‌ها..."
+    )
+
+    user = user_data.get(
+        call.from_user.id
+    )
+
+    if not user:
+
+        bot.send_message(
+
+            call.message.chat.id,
+
+            "❌ اطلاعات این ویدیو منقضی شده. "
+            "لطفاً لینک را دوباره ارسال کن."
+
+        )
+
+        return
+
+    chat_id = (
+        call.message.chat.id
+    )
+
+    status = bot.send_message(
+
+        chat_id,
+
+        "💬 در حال دریافت کامنت‌های ویدیو...\n"
+        "⏳ ممکن است کمی طول بکشد."
+
+    )
+
+    try:
+
+        comments = get_video_comments(
+
+            user["url"],
+
+            max_comments=100
+
+        )
+
+        if not comments:
+
+            bot.edit_message_text(
+
+                "💬 برای این ویدیو کامنتی "
+                "دریافت نشد یا YouTube اجازه "
+                "استخراج کامنت‌ها را نداد.",
+
+                chat_id,
+
+                status.message_id
+
+            )
+
+            return
+
+        output = (
+
+            f"💬 <b>کامنت‌های ویدیو</b>\n\n"
+
+        )
+
+        for index, comment in enumerate(
+            comments,
+            start=1
+        ):
+
+            author = escape_text(
+                comment["author"]
+            )
+
+            comment_text = escape_text(
+                comment["text"]
+            )
+
+            likes = format_number(
+                comment["likes"]
+            )
+
+            block = (
+
+                f"<b>{index}. "
+                f"{author}</b>\n"
+
+                f"{comment_text}\n"
+
+                f"❤️ {likes}\n\n"
+
+            )
+
+            if len(
+                output
+                +
+                block
+            ) > 3800:
+
+                bot.send_message(
+
+                    chat_id,
+
+                    output
+
+                )
+
+                output = ""
+
+            output += block
+
+        if output:
+
+            bot.send_message(
+
+                chat_id,
+
+                output
+
+            )
+
+        try:
+
+            bot.delete_message(
+
+                chat_id,
+
+                status.message_id
+
+            )
+
+        except Exception:
+            pass
+
+    except Exception as e:
+
+        print(
+            "❌ Comments error:",
+            repr(e)
+        )
+
+        try:
+
+            bot.edit_message_text(
+
+                "❌ دریافت کامنت‌ها ناموفق بود.",
+
+                chat_id,
+
+                status.message_id
+
+            )
+
+        except Exception:
+            pass
 
 
 # ============================================================
@@ -566,7 +746,6 @@ def handle_url(message):
 # ============================================================
 
 @bot.callback_query_handler(
-
     func=lambda call:
         call.data.startswith(
             "quality:"
@@ -590,6 +769,7 @@ def quality_selected(call):
             call.id,
 
             "اطلاعات این درخواست منقضی شده."
+
         )
 
         return
@@ -598,43 +778,45 @@ def quality_selected(call):
         call.id
     )
 
-    chat_id = call.message.chat.id
+    chat_id = (
+        call.message.chat.id
+    )
 
-    url = user["url"]
+    url = user[
+        "url"
+    ]
 
-    status_message = bot.send_message(
+    status = bot.send_message(
 
         chat_id,
 
-        f"⏳ در حال دانلود "
-        f"{quality}p..."
+        f"⏳ در حال دانلود {quality}p..."
+
     )
 
     file_path = None
 
-    object_key = None
-
     try:
 
-        print()
-        print("=" * 60)
+        print(
+            "=" * 60
+        )
 
         print(
             f"⬇️ Starting download: "
             f"{quality}p"
         )
 
-        print("=" * 60)
-
-        # ====================================================
-        # Download Video
-        # ====================================================
+        # ----------------------------------------------------
+        # Download
+        # ----------------------------------------------------
 
         file_path = download_video(
 
             url,
 
             quality
+
         )
 
         if not file_path:
@@ -657,117 +839,119 @@ def quality_selected(call):
 
         print(
             f"📦 File size: "
-            f"{file_size / (1024 * 1024):.2f} MB"
+            f"{file_size / 1024 / 1024:.2f} MB"
         )
-
-        # ====================================================
-        # Upload To Fil One
-        # ====================================================
 
         bot.edit_message_text(
 
-            "📤 دانلود انجام شد.\n"
+            "📥 دانلود انجام شد.\n"
             "☁️ در حال آپلود روی سرور...",
 
             chat_id,
 
-            status_message.message_id
+            status.message_id
+
         )
 
-        object_key = upload_to_filo(
-            file_path
+        # ----------------------------------------------------
+        # Fil.one object name
+        # ----------------------------------------------------
+
+        video_id = (
+            user["video_info"].get(
+                "video_id"
+            )
+            or "video"
         )
 
-        # ====================================================
-        # Create Download URL
-        # ====================================================
-
-        download_url = create_download_url(
-            object_key
+        object_name = (
+            f"telegram-videos/"
+            f"{video_id}/"
+            f"{quality}p.mp4"
         )
 
-        # ====================================================
-        # Schedule Cleanup
-        # ====================================================
+        # ----------------------------------------------------
+        # Upload
+        # ----------------------------------------------------
 
-        schedule_cleanup(
-            object_key
+        download_url = upload_to_filon(
+
+            file_path,
+
+            object_name
+
         )
 
-        # ====================================================
-        # Send Link To User
-        # ====================================================
+        # ----------------------------------------------------
+        # Send link
+        # ----------------------------------------------------
 
         markup = types.InlineKeyboardMarkup()
 
-        download_button = types.InlineKeyboardButton(
-
-            "⬇️ دانلود ویدیو",
-
-            url=download_url
-        )
-
         markup.add(
-            download_button
+
+            types.InlineKeyboardButton(
+
+                "⬇️ دانلود ویدیو",
+
+                url=download_url
+
+            )
+
         )
 
-        bot.edit_message_text(
-
-            f"✅ <b>ویدیو آماده است!</b>\n\n"
-
-            f"🎬 کیفیت: <b>{quality}p</b>\n"
-
-            f"📦 حجم: "
-            f"<b>{file_size / (1024 * 1024):.2f} MB</b>\n\n"
-
-            f"⏳ این لینک تا <b>۲ ساعت</b> معتبر است.\n"
-
-            f"بعد از آن فایل از سرور حذف می‌شود.",
+        bot.send_message(
 
             chat_id,
 
-            status_message.message_id,
+            "✅ <b>ویدیو آماده است!</b>\n\n"
+
+            f"🎥 کیفیت: <b>{quality}p</b>\n"
+
+            f"📦 حجم: "
+            f"<b>{file_size / 1024 / 1024:.2f} MB</b>\n\n"
+
+            "برای دریافت ویدیو روی دکمه "
+            "زیر بزن:",
 
             reply_markup=markup
+
         )
 
-        print()
-        print(
-            "✅ VIDEO READY"
-        )
+        try:
+
+            bot.delete_message(
+
+                chat_id,
+
+                status.message_id
+
+            )
+
+        except Exception:
+            pass
 
         print(
-            "Object:",
-            object_key
-        )
-
-        print(
-            "Download URL created successfully."
+            "✅ Download link sent."
         )
 
     except Exception as e:
 
-        print()
         print(
-            "❌ Download / Upload error:"
-        )
-
-        print(
+            "❌ Download / Upload error:",
             repr(e)
         )
-
-        print()
 
         try:
 
             bot.edit_message_text(
 
-                "❌ دانلود یا آپلود ویدیو "
-                "ناموفق بود.",
+                "❌ دانلود یا آپلود ویدیو ناموفق بود.",
 
                 chat_id,
 
-                status_message.message_id
+                status.message_id
+
             )
 
         except Exception:
@@ -776,20 +960,22 @@ def quality_selected(call):
 
                 chat_id,
 
-                "❌ دانلود یا آپلود ویدیو "
-                "ناموفق بود."
+                "❌ دانلود یا آپلود ویدیو ناموفق بود."
+
             )
 
     finally:
 
-        # ====================================================
-        # Delete Local Temporary File
-        # ====================================================
+        # ----------------------------------------------------
+        # Delete local temporary file
+        # ----------------------------------------------------
 
         if (
             file_path
             and
-            os.path.exists(file_path)
+            os.path.exists(
+                file_path
+            )
         ):
 
             try:
@@ -799,40 +985,36 @@ def quality_selected(call):
                 )
 
                 print(
-                    f"🗑 Deleted local file: "
+                    f"🗑 Deleted: "
                     f"{file_path}"
                 )
 
             except Exception as e:
 
                 print(
-                    "Local file cleanup error:",
+                    "File cleanup error:",
                     repr(e)
                 )
 
 
 # ============================================================
-# Start Bot
+# Startup
 # ============================================================
 
-print()
-print("=" * 60)
-print("🤖 BOT IS STARTING...")
-print("=" * 60)
-
 print(
-    "☁️ Storage: Fil One"
+    "🤖 Bot is starting..."
 )
 
-print(
-    "🔗 Delivery: Presigned URL"
-)
+try:
 
-print(
-    "⏳ URL lifetime: 2 hours"
-)
+    setup_bot_commands()
 
-print("=" * 60)
+except Exception as e:
+
+    print(
+        "⚠️ Menu setup error:",
+        repr(e)
+    )
 
 
 bot.infinity_polling(
@@ -840,4 +1022,6 @@ bot.infinity_polling(
     timeout=60,
 
     long_polling_timeout=60
+
 )
+
