@@ -1,5 +1,6 @@
 import os
 import html
+import re
 import boto3
 
 import telebot
@@ -83,14 +84,25 @@ def format_mb(size):
     return size / 1024 / 1024
 
 
+def sanitize_filename(title, quality):
+    """Create a safe, human-readable download filename from the YouTube title."""
+    name = str(title or "YouTube Video").strip()
+    name = re.sub(r'[<>:"/\\|?*\x00-\x1F]', "_", name)
+    name = re.sub(r"\s+", " ", name).strip(" .")
+    if not name:
+        name = "YouTube Video"
+    # Keep filenames portable across Windows/Android/Linux and avoid excessive length.
+    name = name[:180].rstrip(" .")
+    return f"{name} - {quality}p.mp4"
+
+
 # ============================================================
 # Upload to Fil.one
 # ============================================================
 
-def upload_to_filon(file_path, object_name):
+def upload_to_filon(file_path, object_name, download_filename):
     print(f"⬆️ Uploading playback object to Fil.one: {file_path}")
 
-    # Keep a dedicated inline object for browser/online playback.
     s3.upload_file(
         file_path,
         FILONE_BUCKET,
@@ -101,9 +113,6 @@ def upload_to_filon(file_path, object_name):
         },
     )
 
-    # A separate object is intentionally used for downloads.
-    # This avoids relying on Fil.one honoring
-    # ResponseContentDisposition on a presigned GET URL.
     download_object_name = object_name.rsplit("/", 1)[0] + "/download.mp4"
 
     print(f"⬆️ Uploading download object to Fil.one: {download_object_name}")
@@ -113,7 +122,7 @@ def upload_to_filon(file_path, object_name):
         download_object_name,
         ExtraArgs={
             "ContentType": "application/octet-stream",
-            "ContentDisposition": "attachment; filename=video.mp4",
+            "ContentDisposition": f'attachment; filename="{download_filename}"',
         },
     )
 
@@ -121,6 +130,7 @@ def upload_to_filon(file_path, object_name):
     print(f"Bucket: {FILONE_BUCKET}")
     print(f"Playback object: {object_name}")
     print(f"Download object: {download_object_name}")
+    print(f"Download filename: {download_filename}")
 
     playback_url = s3.generate_presigned_url(
         "get_object",
@@ -377,8 +387,14 @@ def quality_selected(call):
         )
 
         video_id = user["video_info"].get("video_id") or "video"
+        video_title = user["video_info"].get("title") or video_id
+        download_filename = sanitize_filename(video_title, quality)
         object_name = f"telegram-videos/{video_id}/{quality}p.mp4"
-        playback_url, download_url = upload_to_filon(file_path, object_name)
+        playback_url, download_url = upload_to_filon(
+            file_path,
+            object_name,
+            download_filename,
+        )
 
         # Send native Telegram playback when the file is small enough.
         direct_sent = False
