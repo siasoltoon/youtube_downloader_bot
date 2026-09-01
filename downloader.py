@@ -1,6 +1,6 @@
-
 import os
 import base64
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -15,7 +15,6 @@ POT_PROVIDER_URL = os.getenv(
     "YOUTUBE_POT_PROVIDER_URL",
     ""
 ).strip().rstrip("/")
-
 
 DOWNLOAD_DIR = (
     Path(tempfile.gettempdir())
@@ -33,48 +32,28 @@ DOWNLOAD_DIR.mkdir(
 # ============================================================
 
 def create_cookie_file():
-
-    cookies_b64 = os.getenv(
-        "YOUTUBE_COOKIES_B64"
-    )
+    cookies_b64 = os.getenv("YOUTUBE_COOKIES_B64")
 
     if not cookies_b64:
-
-        print(
-            "⚠️ YOUTUBE_COOKIES_B64 تنظیم نشده است."
-        )
-
+        print("⚠️ YOUTUBE_COOKIES_B64 تنظیم نشده است.")
         return None
 
     try:
-
         lines = cookies_b64.splitlines()
-
         clean_lines = []
 
         for line in lines:
-
             line = line.strip()
-
             if not line:
                 continue
-
             if line.startswith("-----"):
                 continue
-
             clean_lines.append(line)
 
-        encoded = "".join(
-            clean_lines
-        )
-
-        cookie_data = base64.b64decode(
-            encoded,
-            validate=True
-        )
+        encoded = "".join(clean_lines)
+        cookie_data = base64.b64decode(encoded, validate=True)
 
     except Exception as e:
-
         raise RuntimeError(
             f"YOUTUBE_COOKIES_B64 نامعتبر است: {e}"
         )
@@ -84,18 +63,11 @@ def create_cookie_file():
         / "youtube_cookies.txt"
     )
 
-    with open(
-        cookie_file,
-        "wb"
-    ) as f:
-
-        f.write(
-            cookie_data
-        )
+    with open(cookie_file, "wb") as f:
+        f.write(cookie_data)
 
     print(
-        f"🍪 YouTube cookies loaded: "
-        f"{len(cookie_data)} bytes"
+        f"🍪 YouTube cookies loaded: {len(cookie_data)} bytes"
     )
 
     return str(cookie_file)
@@ -109,7 +81,6 @@ COOKIE_FILE = create_cookie_file()
 # ============================================================
 
 def configure_pot_provider(opts):
-
     if not POT_PROVIDER_URL:
         return
 
@@ -118,9 +89,7 @@ def configure_pot_provider(opts):
         {}
     )
 
-    extractor_args[
-        "youtubepot-bgutilhttp"
-    ] = [
+    extractor_args["youtubepot-bgutilhttp"] = [
         f"base_url={POT_PROVIDER_URL}"
     ]
 
@@ -130,81 +99,38 @@ def configure_pot_provider(opts):
 # ============================================================
 
 def get_ydl_opts():
-
     opts = {
-
         "quiet": False,
-
         "no_warnings": False,
-
         "noplaylist": True,
-
         "socket_timeout": 30,
-
         "retries": 5,
-
         "fragment_retries": 5,
-
         "file_access_retries": 3,
-
         "continuedl": True,
-
         "overwrites": True,
-
         "concurrent_fragment_downloads": 4,
-
-        # ----------------------------------------------------
-        # JavaScript
-        # ----------------------------------------------------
-
         "js_runtimes": {
             "node": {}
         },
-
-        # ----------------------------------------------------
-        # Remote EJS
-        # ----------------------------------------------------
-
         "remote_components": [
             "ejs:github"
         ],
-
-        # ----------------------------------------------------
-        # Output
-        # ----------------------------------------------------
-
         "outtmpl": str(
-            DOWNLOAD_DIR
-            / "%(id)s.%(ext)s"
+            DOWNLOAD_DIR / "%(id)s.%(ext)s"
         ),
-
-        # ----------------------------------------------------
-        # Merge
-        # ----------------------------------------------------
-
         "merge_output_format": "mp4",
-
-        # ----------------------------------------------------
-        # YouTube clients
-        # ----------------------------------------------------
-
         "extractor_args": {
-
             "youtube": [
                 "player_client=web,web_embedded,tv"
             ]
-
         }
     }
 
     if COOKIE_FILE:
-
         opts["cookiefile"] = COOKIE_FILE
 
-    configure_pot_provider(
-        opts
-    )
-
+    configure_pot_provider(opts)
     return opts
 
 
@@ -213,35 +139,22 @@ def get_ydl_opts():
 # ============================================================
 
 def format_size(size):
-
     if not size:
         return "حجم نامشخص"
 
     try:
-
         size = float(size)
-
     except Exception:
-
         return "حجم نامشخص"
 
-    units = [
-        "B",
-        "KB",
-        "MB",
-        "GB",
-        "TB"
-    ]
-
+    units = ["B", "KB", "MB", "GB", "TB"]
     index = 0
 
     while size >= 1024 and index < len(units) - 1:
-
         size /= 1024
         index += 1
 
     if index == 0:
-
         return f"{int(size)} {units[index]}"
 
     return f"{size:.1f} {units[index]}"
@@ -252,37 +165,22 @@ def format_size(size):
 # ============================================================
 
 def format_duration(seconds):
-
     if not seconds:
         return "نامشخص"
 
     try:
-
         seconds = int(seconds)
-
     except Exception:
-
         return "نامشخص"
 
     hours = seconds // 3600
-
-    minutes = (
-        seconds % 3600
-    ) // 60
-
-    secs = (
-        seconds % 60
-    )
+    minutes = (seconds % 3600) // 60
+    secs = seconds % 60
 
     if hours > 0:
+        return f"{hours}:{minutes:02d}:{secs:02d}"
 
-        return (
-            f"{hours}:{minutes:02d}:{secs:02d}"
-        )
-
-    return (
-        f"{minutes}:{secs:02d}"
-    )
+    return f"{minutes}:{secs:02d}"
 
 
 # ============================================================
@@ -290,42 +188,24 @@ def format_duration(seconds):
 # ============================================================
 
 def format_score(fmt):
-
     score = 0
 
     if fmt.get("ext") == "mp4":
         score += 100
 
-    if fmt.get("vcodec") not in (
-        None,
-        "none"
-    ):
+    if fmt.get("vcodec") not in (None, "none"):
         score += 50
 
-    if fmt.get("acodec") not in (
-        None,
-        "none"
-    ):
+    if fmt.get("acodec") not in (None, "none"):
         score += 50
 
     try:
-
-        score += min(
-            int(float(fmt.get("fps") or 0)),
-            60
-        )
-
+        score += min(int(float(fmt.get("fps") or 0)), 60)
     except Exception:
         pass
 
     try:
-
-        score += int(
-            float(
-                fmt.get("tbr") or 0
-            )
-        )
-
+        score += int(float(fmt.get("tbr") or 0))
     except Exception:
         pass
 
@@ -337,61 +217,33 @@ def format_score(fmt):
 # ============================================================
 
 def extract_qualities(info):
-
     qualities = {}
 
-    for fmt in info.get(
-        "formats",
-        []
-    ):
-
-        height = fmt.get(
-            "height"
-        )
-
-        vcodec = fmt.get(
-            "vcodec"
-        )
+    for fmt in info.get("formats", []):
+        height = fmt.get("height")
+        vcodec = fmt.get("vcodec")
 
         if not height:
             continue
 
         try:
-
             height = int(height)
-
         except Exception:
-
             continue
 
         if height < 144:
             continue
 
-        if (
-            not vcodec
-            or
-            vcodec == "none"
-        ):
+        if not vcodec or vcodec == "none":
             continue
 
         if fmt.get("ext") == "mhtml":
             continue
 
-        current = qualities.get(
-            height
-        )
+        current = qualities.get(height)
 
-        if (
-            current is None
-            or
-            format_score(fmt)
-            >
-            format_score(current)
-        ):
-
-            qualities[
-                height
-            ] = fmt
+        if current is None or format_score(fmt) > format_score(current):
+            qualities[height] = fmt
 
     return dict(
         sorted(
@@ -406,141 +258,60 @@ def extract_qualities(info):
 # Estimate final file size
 # ============================================================
 
-def estimate_quality_size(
-    info,
-    height
-):
-
-    formats = info.get(
-        "formats",
-        []
-    )
-
+def estimate_quality_size(info, height):
+    formats = info.get("formats", [])
     video_candidates = []
-
     audio_candidates = []
 
-    # --------------------------------------------------------
-    # Video
-    # --------------------------------------------------------
-
     for fmt in formats:
+        fmt_height = fmt.get("height")
+        vcodec = fmt.get("vcodec")
 
-        fmt_height = fmt.get(
-            "height"
-        )
-
-        vcodec = fmt.get(
-            "vcodec"
-        )
-
-        if not fmt_height:
-            continue
-
-        if not vcodec or vcodec == "none":
+        if not fmt_height or not vcodec or vcodec == "none":
             continue
 
         try:
-
-            fmt_height = int(
-                fmt_height
-            )
-
+            fmt_height = int(fmt_height)
         except Exception:
-
             continue
 
         if fmt_height > height:
             continue
 
-        filesize = (
-            fmt.get("filesize")
-            or
-            fmt.get("filesize_approx")
-        )
+        filesize = fmt.get("filesize") or fmt.get("filesize_approx")
 
         if filesize:
-
             video_candidates.append(
-                (
-                    fmt_height,
-                    filesize,
-                    format_score(fmt)
-                )
+                (fmt_height, filesize, format_score(fmt))
             )
-
-    # --------------------------------------------------------
-    # Audio
-    # --------------------------------------------------------
 
     for fmt in formats:
+        acodec = fmt.get("acodec")
+        vcodec = fmt.get("vcodec")
 
-        acodec = fmt.get(
-            "acodec"
-        )
-
-        vcodec = fmt.get(
-            "vcodec"
-        )
-
-        if (
-            not acodec
-            or
-            acodec == "none"
-        ):
+        if not acodec or acodec == "none":
             continue
 
-        if (
-            vcodec
-            and
-            vcodec != "none"
-        ):
+        if vcodec and vcodec != "none":
             continue
 
-        filesize = (
-            fmt.get("filesize")
-            or
-            fmt.get("filesize_approx")
-        )
+        filesize = fmt.get("filesize") or fmt.get("filesize_approx")
 
         if filesize:
-
-            audio_candidates.append(
-                filesize
-            )
+            audio_candidates.append(filesize)
 
     if not video_candidates:
-
         return None
 
-    # Best video format at requested height
     video_candidates.sort(
-        key=lambda x: (
-            x[0],
-            x[2]
-        ),
+        key=lambda x: (x[0], x[2]),
         reverse=True
     )
 
-    video_size = (
-        video_candidates[0][1]
-    )
+    video_size = video_candidates[0][1]
+    audio_size = max(audio_candidates) if audio_candidates else 0
 
-    audio_size = 0
-
-    if audio_candidates:
-
-        audio_size = max(
-            audio_candidates
-        )
-
-    total = (
-        video_size
-        +
-        audio_size
-    )
-
-    return total
+    return video_size + audio_size
 
 
 # ============================================================
@@ -548,221 +319,88 @@ def estimate_quality_size(
 # ============================================================
 
 def get_video_data(url):
-
-    print(
-        "🔎 Extracting video information..."
-    )
+    print("🔎 Extracting video information...")
 
     ydl_opts = get_ydl_opts()
+    ydl_opts["skip_download"] = True
 
-    ydl_opts[
-        "skip_download"
-    ] = True
-
-    with yt_dlp.YoutubeDL(
-        ydl_opts
-    ) as ydl:
-
-        info = ydl.extract_info(
-            url,
-            download=False
-        )
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=False)
 
     if not info:
+        raise RuntimeError("اطلاعات ویدیو دریافت نشد.")
 
-        raise RuntimeError(
-            "اطلاعات ویدیو دریافت نشد."
-        )
-
-    qualities = extract_qualities(
-        info
-    )
-
+    qualities = extract_qualities(info)
     quality_data = []
 
     for height in qualities:
-
-        estimated_size = (
-            estimate_quality_size(
-                info,
-                height
-            )
-        )
-
+        estimated_size = estimate_quality_size(info, height)
         quality_data.append({
-
             "height": height,
-
             "size": estimated_size,
-
-            "size_text": format_size(
-                estimated_size
-            )
-
+            "size_text": format_size(estimated_size)
         })
 
-    available_qualities = [
-
-        item["height"]
-
-        for item in quality_data
-
-    ]
+    available_qualities = [item["height"] for item in quality_data]
 
     video_info = {
-
-        "title": (
-            info.get("title")
-            or "نامشخص"
-        ),
-
-        "channel": (
-            info.get("channel")
-            or info.get("uploader")
-            or "نامشخص"
-        ),
-
-        "views": (
-            info.get("view_count")
-            or 0
-        ),
-
-        "likes": (
-            info.get("like_count")
-            or 0
-        ),
-
-        "duration": (
-            info.get("duration")
-            or 0
-        ),
-
-        "duration_text": format_duration(
-            info.get("duration")
-        ),
-
-        "thumbnail": (
-            info.get("thumbnail")
-            or ""
-        ),
-
-        "webpage_url": (
-            info.get("webpage_url")
-            or url
-        ),
-
-        "video_id": (
-            info.get("id")
-            or ""
-        ),
-
+        "title": info.get("title") or "نامشخص",
+        "channel": info.get("channel") or info.get("uploader") or "نامشخص",
+        "views": info.get("view_count") or 0,
+        "likes": info.get("like_count") or 0,
+        "duration": info.get("duration") or 0,
+        "duration_text": format_duration(info.get("duration")),
+        "thumbnail": info.get("thumbnail") or "",
+        "webpage_url": info.get("webpage_url") or url,
+        "video_id": info.get("id") or "",
         "quality_data": quality_data
-
     }
 
-    print(
-        "🎥 AVAILABLE QUALITIES:",
-        available_qualities
-    )
+    print("🎥 AVAILABLE QUALITIES:", available_qualities)
 
-    return (
-        video_info,
-        quality_data
-    )
+    return video_info, quality_data
 
 
 # ============================================================
 # Get YouTube comments
 # ============================================================
 
-def get_video_comments(
-    url,
-    max_comments=100
-):
-
-    print(
-        f"💬 Extracting comments: {url}"
-    )
+def get_video_comments(url, max_comments=100):
+    print(f"💬 Extracting comments: {url}")
 
     ydl_opts = get_ydl_opts()
-
     ydl_opts.update({
-
         "skip_download": True,
-
         "getcomments": True,
-
         "extractor_args": {
-
             "youtube": [
-
                 "player_client=web,web_embedded,tv"
-
             ],
-
             "youtubepot-bgutilhttp": (
-
-                [
-                    f"base_url={POT_PROVIDER_URL}"
-                ]
-
-                if POT_PROVIDER_URL
-
-                else []
-
+                [f"base_url={POT_PROVIDER_URL}"]
+                if POT_PROVIDER_URL else []
             )
-
         }
-
     })
 
-    with yt_dlp.YoutubeDL(
-        ydl_opts
-    ) as ydl:
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=False)
 
-        info = ydl.extract_info(
-            url,
-            download=False
-        )
-
-    comments = (
-        info.get("comments")
-        or []
-    )
-
+    comments = info.get("comments") or []
     result = []
 
     for comment in comments:
-
         if len(result) >= max_comments:
             break
 
-        text = (
-            comment.get("text")
-            or ""
-        )
-
+        text = comment.get("text") or ""
         if not text:
             continue
 
-        author = (
-            comment.get("author")
-            or "کاربر"
-        )
-
-        like_count = (
-            comment.get("like_count")
-            or 0
-        )
-
         result.append({
-
-            "author": author,
-
+            "author": comment.get("author") or "کاربر",
             "text": text,
-
-            "likes": like_count
-
+            "likes": comment.get("like_count") or 0
         })
 
     return result
@@ -772,14 +410,8 @@ def get_video_comments(
 # Build Format Selector
 # ============================================================
 
-def build_format_selector(
-    quality
-):
-
-    quality = int(
-        quality
-    )
-
+def build_format_selector(quality):
+    quality = int(quality)
     return (
         f"bestvideo[height<={quality}]"
         f"+bestaudio/"
@@ -791,167 +423,159 @@ def build_format_selector(
 # Find Final MP4
 # ============================================================
 
-def find_final_file(
-    video_id
-):
-
-    expected = (
-        DOWNLOAD_DIR
-        / f"{video_id}.mp4"
-    )
+def find_final_file(video_id):
+    expected = DOWNLOAD_DIR / f"{video_id}.mp4"
 
     if expected.exists():
+        return str(expected)
 
-        return str(
-            expected
-        )
-
-    matches = list(
-        DOWNLOAD_DIR.glob(
-            f"{video_id}*.mp4"
-        )
-    )
+    matches = list(DOWNLOAD_DIR.glob(f"{video_id}*.mp4"))
 
     if matches:
-
         matches.sort(
             key=lambda p: p.stat().st_mtime,
             reverse=True
         )
-
-        return str(
-            matches[0]
-        )
+        return str(matches[0])
 
     return None
+
+
+# ============================================================
+# Streamable MP4 conversion
+# ============================================================
+# YouTube may select AV1/Opus for high qualities. Merely changing
+# the container to MP4 does NOT make that media universally playable.
+# Convert to H.264 + AAC and move the MP4 metadata to the beginning
+# so HTTP range/progressive playback can start before the whole file
+# is downloaded.
+# ============================================================
+
+def make_streamable_mp4(file_path):
+    source = Path(file_path)
+    output = source.with_name(f"{source.stem}.streamable.mp4")
+
+    print(
+        f"🎞 Converting to streamable H.264/AAC MP4: {source}"
+    )
+
+    command = [
+        "ffmpeg",
+        "-y",
+        "-i", str(source),
+        "-map", "0:v:0",
+        "-map", "0:a:0?",
+        "-c:v", "libx264",
+        "-preset", os.getenv("VIDEO_X264_PRESET", "veryfast"),
+        "-crf", os.getenv("VIDEO_X264_CRF", "23"),
+        "-c:a", "aac",
+        "-b:a", os.getenv("VIDEO_AAC_BITRATE", "128k"),
+        "-movflags", "+faststart",
+        "-pix_fmt", "yuv420p",
+        str(output)
+    ]
+
+    try:
+        subprocess.run(
+            command,
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=None
+        )
+    except FileNotFoundError as e:
+        raise RuntimeError(
+            "ffmpeg پیدا نشد؛ برای پخش سازگار ویدیو لازم است."
+        ) from e
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(
+            f"تبدیل ویدیو به MP4 قابل پخش ناموفق بود (exit={e.returncode})."
+        ) from e
+
+    if not output.exists() or output.stat().st_size <= 0:
+        raise RuntimeError(
+            "فایل MP4 قابل پخش تولید نشد."
+        )
+
+    try:
+        source.unlink()
+    except OSError:
+        pass
+
+    output.replace(source)
+
+    print(
+        f"✅ Streamable MP4 ready: {source} "
+        f"({format_size(source.stat().st_size)})"
+    )
+
+    return str(source)
 
 
 # ============================================================
 # Download Video
 # ============================================================
 
-def download_video(
-    url,
-    quality
-):
-
-    quality = int(
-        quality
-    )
-
-    print(
-        f"🎯 Requested quality: {quality}p"
-    )
+def download_video(url, quality):
+    quality = int(quality)
+    print(f"🎯 Requested quality: {quality}p")
 
     info_opts = get_ydl_opts()
+    info_opts["skip_download"] = True
 
-    info_opts[
-        "skip_download"
-    ] = True
-
-    with yt_dlp.YoutubeDL(
-        info_opts
-    ) as ydl:
-
-        info = ydl.extract_info(
-            url,
-            download=False
-        )
+    with yt_dlp.YoutubeDL(info_opts) as ydl:
+        info = ydl.extract_info(url, download=False)
 
     if not info:
+        raise RuntimeError("Video information unavailable.")
 
-        raise RuntimeError(
-            "Video information unavailable."
-        )
-
-    video_id = (
-        info.get("id")
-        or "youtube_video"
-    )
-
-    qualities = extract_qualities(
-        info
-    )
-
-    available = sorted(
-        qualities.keys()
-    )
+    video_id = info.get("id") or "youtube_video"
+    qualities = extract_qualities(info)
+    available = sorted(qualities.keys())
 
     if not available:
+        raise RuntimeError("هیچ کیفیت ویدیویی پیدا نشد.")
 
-        raise RuntimeError(
-            "هیچ کیفیت ویدیویی پیدا نشد."
-        )
-
-    valid = [
-        h
-        for h in available
-        if h <= quality
-    ]
+    valid = [h for h in available if h <= quality]
 
     if valid:
-
-        selected_height = max(
-            valid
-        )
-
+        selected_height = max(valid)
     else:
-
         selected_height = min(
             available,
             key=lambda h: abs(h - quality)
         )
 
-    print(
-        f"📺 Selected quality: {selected_height}p"
-    )
+    print(f"📺 Selected quality: {selected_height}p")
 
     ydl_opts = get_ydl_opts()
-
-    ydl_opts["format"] = build_format_selector(
-        selected_height
-    )
-
+    ydl_opts["format"] = build_format_selector(selected_height)
     ydl_opts["postprocessors"] = [
         {
             "key": "FFmpegVideoConvertor",
             "preferedformat": "mp4"
         }
     ]
-
     ydl_opts["merge_output_format"] = "mp4"
 
-    with yt_dlp.YoutubeDL(
-        ydl_opts
-    ) as ydl:
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        ydl.download([url])
 
-        ydl.download([
-            url
-        ])
-
-    final_file = find_final_file(
-        video_id
-    )
+    final_file = find_final_file(video_id)
 
     if not final_file:
+        raise RuntimeError("فایل نهایی MP4 پیدا نشد.")
 
-        raise RuntimeError(
-            "فایل نهایی MP4 پیدا نشد."
-        )
-
-    file_size = os.path.getsize(
-        final_file
-    )
+    file_size = os.path.getsize(final_file)
 
     if file_size <= 0:
-
-        raise RuntimeError(
-            "فایل دانلود شده خالی است."
-        )
+        raise RuntimeError("فایل دانلود شده خالی است.")
 
     print(
         f"✅ Download completed: {final_file} "
         f"({format_size(file_size)})"
     )
+
+    # Critical playback fix: container remux alone is insufficient.
+    final_file = make_streamable_mp4(final_file)
 
     return final_file
