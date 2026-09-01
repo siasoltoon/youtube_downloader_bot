@@ -158,7 +158,7 @@ def get_ydl_opts():
         # ----------------------------------------------------
 
         "js_runtimes": {
-            "deno": {}
+            "node": {}
         },
 
         # ----------------------------------------------------
@@ -898,78 +898,36 @@ def download_video(
     else:
 
         selected_height = min(
-            available
+            available,
+            key=lambda h: abs(h - quality)
         )
 
     print(
-        f"🎥 Selected quality: "
-        f"{selected_height}p"
+        f"📺 Selected quality: {selected_height}p"
     )
-
-    # --------------------------------------------------------
-    # Delete old files
-    # --------------------------------------------------------
-
-    for old_file in DOWNLOAD_DIR.glob(
-        f"{video_id}*"
-    ):
-
-        try:
-
-            old_file.unlink()
-
-        except Exception:
-            pass
-
-    # --------------------------------------------------------
-    # Format
-    # --------------------------------------------------------
-
-    format_selector = (
-        build_format_selector(
-            selected_height
-        )
-    )
-
-    print(
-        f"🎯 Format selector: "
-        f"{format_selector}"
-    )
-
-    # --------------------------------------------------------
-    # Options
-    # --------------------------------------------------------
 
     ydl_opts = get_ydl_opts()
 
-    ydl_opts.update({
+    ydl_opts["format"] = build_format_selector(
+        selected_height
+    )
 
-        "format": format_selector,
+    ydl_opts["postprocessors"] = [
+        {
+            "key": "FFmpegVideoConvertor",
+            "preferedformat": "mp4"
+        }
+    ]
 
-        "outtmpl": str(
-            DOWNLOAD_DIR
-            / f"{video_id}.%(ext)s"
-        ),
-
-        "merge_output_format": "mp4"
-
-    })
-
-    # --------------------------------------------------------
-    # Download
-    # --------------------------------------------------------
+    ydl_opts["merge_output_format"] = "mp4"
 
     with yt_dlp.YoutubeDL(
         ydl_opts
     ) as ydl:
 
-        result = ydl.download(
-            [url]
-        )
-
-    print(
-        f"yt-dlp return code: {result}"
-    )
+        ydl.download([
+            url
+        ])
 
     final_file = find_final_file(
         video_id
@@ -977,48 +935,23 @@ def download_video(
 
     if not final_file:
 
-        raise FileNotFoundError(
-            "Final MP4 file not found."
+        raise RuntimeError(
+            "فایل نهایی MP4 پیدا نشد."
         )
 
-    final_path = Path(
+    file_size = os.path.getsize(
         final_file
     )
 
-    if not final_path.is_file():
-
-        raise FileNotFoundError(
-            "Final file is not regular."
-        )
-
-    size = final_path.stat().st_size
-
-    if size <= 0:
+    if file_size <= 0:
 
         raise RuntimeError(
-            "Downloaded video is empty."
+            "فایل دانلود شده خالی است."
         )
 
     print(
-        f"✅ Download completed: "
-        f"{size / 1024 / 1024:.2f} MB"
+        f"✅ Download completed: {final_file} "
+        f"({format_size(file_size)})"
     )
 
     return final_file
-
-
-# ============================================================
-# Module Test
-# ============================================================
-
-if __name__ == "__main__":
-
-    print(
-        "Downloader module loaded successfully."
-    )
-
-    print(
-        f"Download directory: "
-        f"{DOWNLOAD_DIR}"
-    )
-
