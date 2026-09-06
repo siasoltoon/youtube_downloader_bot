@@ -2,14 +2,40 @@ $ErrorActionPreference = "Stop"
 
 Write-Host "=== YouTube Downloader Windows Bootstrap ===" -ForegroundColor Cyan
 
-function Ensure-Command {
+function Install-WingetPackage {
     param(
-        [Parameter(Mandatory=$true)][string]$CommandName,
+        [Parameter(Mandatory=$true)][string]$Id,
         [Parameter(Mandatory=$true)][string]$DisplayName
     )
 
+    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+        throw "winget is required to install $DisplayName automatically."
+    }
+
+    Write-Host "Installing $DisplayName..." -ForegroundColor Yellow
+    winget install --id $Id --exact --silent --accept-package-agreements --accept-source-agreements
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to install $DisplayName with winget (exit=$LASTEXITCODE)."
+    }
+}
+
+function Ensure-Command {
+    param(
+        [Parameter(Mandatory=$true)][string]$CommandName,
+        [Parameter(Mandatory=$true)][string]$DisplayName,
+        [string]$WingetId
+    )
+
     if (-not (Get-Command $CommandName -ErrorAction SilentlyContinue)) {
-        throw "$DisplayName was not found. Install it first, then rerun this script."
+        if (-not $WingetId) {
+            throw "$DisplayName was not found."
+        }
+        Install-WingetPackage -Id $WingetId -DisplayName $DisplayName
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+    }
+
+    if (-not (Get-Command $CommandName -ErrorAction SilentlyContinue)) {
+        throw "$DisplayName is still unavailable after installation. Restart the shell and rerun the bootstrap."
     }
 
     $command = Get-Command $CommandName
@@ -33,13 +59,21 @@ if (-not $pythonCommand -and (Get-Command python -ErrorAction SilentlyContinue))
 }
 
 if (-not $pythonCommand) {
-    throw "Python 3.13 (or a compatible Python installation) was not found."
+    Install-WingetPackage -Id "Python.Python.3.13" -DisplayName "Python 3.13"
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+    if (Get-Command py -ErrorAction SilentlyContinue) {
+        $pythonCommand = "py -3.13"
+    } elseif (Get-Command python -ErrorAction SilentlyContinue) {
+        $pythonCommand = "python"
+    } else {
+        throw "Python 3.13 was installed but is not available in this shell."
+    }
 }
 
 # Required native tools used by downloader.py.
-Ensure-Command -CommandName "ffmpeg" -DisplayName "FFmpeg"
-Ensure-Command -CommandName "node" -DisplayName "Node.js"
-Ensure-Command -CommandName "git" -DisplayName "Git"
+Ensure-Command -CommandName "ffmpeg" -DisplayName "FFmpeg" -WingetId "Gyan.FFmpeg"
+Ensure-Command -CommandName "node" -DisplayName "Node.js 24" -WingetId "OpenJS.NodeJS.LTS"
+Ensure-Command -CommandName "git" -DisplayName "Git" -WingetId "Git.Git"
 
 Write-Host "`nInstalling Python dependencies..." -ForegroundColor Yellow
 if ($pythonCommand -eq "py -3.13") {
