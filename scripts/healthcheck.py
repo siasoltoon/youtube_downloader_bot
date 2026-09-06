@@ -1,5 +1,6 @@
 import importlib
 import os
+import py_compile
 import shutil
 import sys
 
@@ -31,6 +32,23 @@ def check_module(name: str) -> None:
     print(f"OK Python module: {name}")
 
 
+def check_python_source(path: str) -> None:
+    try:
+        py_compile.compile(path, doraise=True)
+    except py_compile.PyCompileError as exc:
+        raise RuntimeError(f"Python source validation failed: {path}: {exc}") from exc
+    print(f"OK Python syntax: {path}")
+
+
+def check_downloader_import() -> None:
+    # downloader.py performs its cookie configuration at import time.
+    # Import it here so startup-only failures (including Windows console
+    # encoding and invalid cookie configuration) fail during validation,
+    # before the long-lived bot process is started.
+    importlib.import_module("downloader")
+    print("OK downloader startup import")
+
+
 def main() -> int:
     print(f"Python: {sys.version.split()[0]}")
 
@@ -54,6 +72,11 @@ def main() -> int:
 
     if not os.getenv("YOUTUBE_POT_PROVIDER_URL"):
         print("WARN YOUTUBE_POT_PROVIDER_URL is not set; requests requiring the configured POT provider may fail.")
+
+    for source in ("downloader.py", "bot.py"):
+        check_python_source(source)
+
+    check_downloader_import()
 
     print("Health check completed.")
     return 0
