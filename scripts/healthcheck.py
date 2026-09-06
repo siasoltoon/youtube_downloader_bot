@@ -3,6 +3,15 @@ import os
 import py_compile
 import shutil
 import sys
+from pathlib import Path
+
+
+# Always resolve application modules from the repository root instead of
+# relying on the current working directory. GitHub Actions invokes this
+# script from different working directories depending on the caller.
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 
 REQUIRED_MODULES = (
@@ -32,12 +41,12 @@ def check_module(name: str) -> None:
     print(f"OK Python module: {name}")
 
 
-def check_python_source(path: str) -> None:
+def check_python_source(path: Path) -> None:
     try:
-        py_compile.compile(path, doraise=True)
+        py_compile.compile(str(path), doraise=True)
     except py_compile.PyCompileError as exc:
         raise RuntimeError(f"Python source validation failed: {path}: {exc}") from exc
-    print(f"OK Python syntax: {path}")
+    print(f"OK Python syntax: {path.name}")
 
 
 def check_downloader_import() -> None:
@@ -51,6 +60,7 @@ def check_downloader_import() -> None:
 
 def main() -> int:
     print(f"Python: {sys.version.split()[0]}")
+    print(f"Repository root: {REPO_ROOT}")
 
     for command in ("ffmpeg", "node"):
         check_command(command)
@@ -73,7 +83,7 @@ def main() -> int:
     if not os.getenv("YOUTUBE_POT_PROVIDER_URL"):
         print("WARN YOUTUBE_POT_PROVIDER_URL is not set; requests requiring the configured POT provider may fail.")
 
-    for source in ("downloader.py", "bot.py"):
+    for source in (REPO_ROOT / "downloader.py", REPO_ROOT / "bot.py"):
         check_python_source(source)
 
     check_downloader_import()
