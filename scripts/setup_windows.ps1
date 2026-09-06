@@ -19,6 +19,41 @@ function Install-WingetPackage {
     }
 }
 
+function Refresh-ProcessPath {
+    $machinePath = [System.Environment]::GetEnvironmentVariable("Path", "Machine")
+    $userPath = [System.Environment]::GetEnvironmentVariable("Path", "User")
+    $parts = @($machinePath, $userPath) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    $env:Path = ($parts -join ";")
+}
+
+function Export-CommandDirectoryToGitHubPath {
+    param(
+        [Parameter(Mandatory=$true)][string]$CommandName
+    )
+
+    # GITHUB_PATH affects subsequent GitHub Actions steps. This is necessary
+    # because a child PowerShell process cannot modify the parent step's PATH.
+    if ([string]::IsNullOrWhiteSpace($env:GITHUB_PATH)) {
+        return
+    }
+
+    $command = Get-Command $CommandName -ErrorAction SilentlyContinue
+    if (-not $command) {
+        return
+    }
+
+    $source = $command.Source
+    if ([string]::IsNullOrWhiteSpace($source)) {
+        return
+    }
+
+    $directory = Split-Path -Parent $source
+    if (-not [string]::IsNullOrWhiteSpace($directory)) {
+        Add-Content -Path $env:GITHUB_PATH -Value $directory
+        Write-Host "Exported to future GitHub Actions steps: $directory" -ForegroundColor DarkGray
+    }
+}
+
 function Ensure-Command {
     param(
         [Parameter(Mandatory=$true)][string]$CommandName,
@@ -31,7 +66,7 @@ function Ensure-Command {
             throw "$DisplayName was not found."
         }
         Install-WingetPackage -Id $WingetId -DisplayName $DisplayName
-        $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+        Refresh-ProcessPath
     }
 
     if (-not (Get-Command $CommandName -ErrorAction SilentlyContinue)) {
@@ -40,6 +75,7 @@ function Ensure-Command {
 
     $command = Get-Command $CommandName
     Write-Host "OK: $DisplayName -> $($command.Source)" -ForegroundColor Green
+    Export-CommandDirectoryToGitHubPath -CommandName $CommandName
 }
 
 # Python: prefer the Windows Python launcher when available.
@@ -60,7 +96,7 @@ if (-not $pythonCommand -and (Get-Command python -ErrorAction SilentlyContinue))
 
 if (-not $pythonCommand) {
     Install-WingetPackage -Id "Python.Python.3.13" -DisplayName "Python 3.13"
-    $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+    Refresh-ProcessPath
     if (Get-Command py -ErrorAction SilentlyContinue) {
         $pythonCommand = "py -3.13"
     } elseif (Get-Command python -ErrorAction SilentlyContinue) {
