@@ -24,11 +24,11 @@ FILONE_BUCKET = os.getenv("FILONE_BUCKET")
 FILONE_ENDPOINT = os.getenv("FILONE_ENDPOINT")
 
 try:
-    FILONE_URL_EXPIRES = int(os.getenv("FILONE_URL_EXPIRES", "3600"))
+    FILONE_URL_EXPIRES = int(os.getenv("FILONE_URL_EXPIRES", str(7 * 24 * 60 * 60)))
 except ValueError:
-    FILONE_URL_EXPIRES = 3600
+    FILONE_URL_EXPIRES = 7 * 24 * 60 * 60
 if FILONE_URL_EXPIRES <= 0:
-    FILONE_URL_EXPIRES = 3600
+    FILONE_URL_EXPIRES = 7 * 24 * 60 * 60
 
 for name, value in (
     ("FILONE_ACCESS_KEY", FILONE_ACCESS_KEY),
@@ -450,33 +450,30 @@ def quality_selected(call):
         print("✅ Playback and download links sent.")
 
     except Exception as e:
-        print("❌ Download / Upload error:", repr(e))
+        print("❌ Quality processing error:", repr(e))
         try:
             bot.edit_message_text(
-                "❌ دانلود یا آپلود ویدیو ناموفق بود.",
+                "❌ آماده‌سازی ویدیو ناموفق بود. لطفاً دوباره تلاش کن.",
                 chat_id,
                 status.message_id,
             )
         except Exception:
-            bot.send_message(chat_id, "❌ دانلود یا آپلود ویدیو ناموفق بود.")
+            bot.send_message(chat_id, "❌ آماده‌سازی ویدیو ناموفق بود. لطفاً دوباره تلاش کن.")
 
     finally:
         if file_path and os.path.exists(file_path):
             try:
                 os.remove(file_path)
-                print(f"🗑 Deleted: {file_path}")
-            except Exception as e:
-                print("File cleanup error:", repr(e))
+                print(f"🧹 Temporary file removed: {file_path}")
+            except Exception as cleanup_error:
+                print("⚠️ Temporary file cleanup failed:", repr(cleanup_error))
 
 
 # ============================================================
-# Startup
+# Main
 # ============================================================
 
-print("🤖 Bot is starting...")
-try:
+if __name__ == "__main__":
     setup_bot_commands()
-except Exception as e:
-    print("⚠️ Menu setup error:", repr(e))
-
-bot.infinity_polling(timeout=60, long_polling_timeout=60)
+    print("🤖 YouTube Downloader Bot is running...")
+    bot.infinity_polling(skip_pending=True)
